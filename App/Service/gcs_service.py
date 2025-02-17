@@ -27,7 +27,8 @@ settings = DevelopmentConfig()
 
 class GoogleCloudStorage:
     def __init__(self, bucket_name: str):
-        self.client = storage.Client()
+        # self.client = storage.Client()
+        self.client = get_gcs_client()
         self.bucket_name = bucket_name
         self.bucket = self.client.get_bucket(bucket_name)
         self.public_urls = {}

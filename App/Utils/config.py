@@ -1,5 +1,6 @@
+import json
 import os
-from pydantic import  Field, EmailStr
+from pydantic import  Field, EmailStr, field_validator
 from typing import Dict, Optional
 from pydantic_settings import BaseSettings
 import secrets
@@ -85,6 +86,17 @@ class BaseConfig(BaseSettings):
     EMAIL_RETRY_ATTEMPTS: int = Field(3, description="Number of retry attempts for sending emails.")
     EMAIL_RETRY_DELAY: float = Field(1.0, description="Delay between email retries (in seconds).")
 
+    GCS_CREDENTIALS: dict  # We want this as a dict
+    @field_validator("GCS_CREDENTIALS", mode="before")
+    def parse_gcp_credentials(cls, value):
+        # If the value is a string, parse it from JSON
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON for gcp_credentials: {e}")
+        return value
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
@@ -97,7 +109,8 @@ class DevelopmentConfig(BaseConfig):
     DEBUG: bool = True
     LOG_LEVEL: str = "DEBUG"
     BUCKET_NAME: str = "developers-bucket" 
-    #GOOGLE_APPLICATION_CREDENTIALS:str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "google_cloud_storage_api.json")
+    # GOOGLE_APPLICATION_CREDENTIALS:str = "GOOGLE_APPLICATION_CREDENTIALS"
+    # GOOGLE_APPLICATION_CREDENTIALS:str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "google_cloud_storage_api.json")
     GOOGLE_APPLICATION_CREDENTIALS:str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "service_account.json")
     os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = r'service_account.json'
 

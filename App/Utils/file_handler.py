@@ -128,13 +128,48 @@ async def delete_file_from_local(file_path: str):
 
 
 # Load GCS credentials from the provided json file
-def get_gcs_client():
+# def get_gcs_client():
 
+#     # Get the path to the Google Cloud API JSON file from an environment variable
+#     gcloud_credentials_path = settings.GOOGLE_APPLICATION_CREDENTIALS
+#     print("path: ", gcloud_credentials_path)
+#     print(os.path.exists(gcloud_credentials_path))
+#     if os.path.exists(gcloud_credentials_path):
+#        with open(gcloud_credentials_path) as f:
+#             credentials_info = json.load(f)
+       
+#     else:
+#         print("else")
+#         credentials_info = settings.GCS_CREDENTIALS
+#         if not credentials_info or "private_key" not in credentials_info:
+#             raise ValueError("Invalid or missing GCS credentials.")
+
+#     # print("credential_info: ", credentials_info)
+        
+    
+#     return storage.Client.from_service_account_info(credentials_info)
+
+# client = get_gcs_client()
+
+def get_gcs_client():
     # Get the path to the Google Cloud API JSON file from an environment variable
     gcloud_credentials_path = settings.GOOGLE_APPLICATION_CREDENTIALS
-    with open(gcloud_credentials_path) as f:
-        credentials_info = json.load(f)
-    return storage.Client.from_service_account_info(credentials_info)
+    print("path: ", gcloud_credentials_path)
+    print(os.path.exists(gcloud_credentials_path))
+    
+    if os.path.exists(gcloud_credentials_path):
+        with open(gcloud_credentials_path) as f:
+            credentials_info = json.load(f)
+    else:
+        print("else")
+        credentials_info = settings.GCS_CREDENTIALS
+        if not credentials_info or "private_key" not in credentials_info:
+            raise ValueError("Invalid or missing GCS credentials.")
+
+    return storage.Client.from_service_account_info(
+        credentials_info,
+        project=credentials_info.get("project_id")  # Explicitly pass the project id
+    )
 
 client = get_gcs_client()
 
