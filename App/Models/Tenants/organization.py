@@ -1,0 +1,112 @@
+from sqlalchemy import Column, Integer, String, ForeignKey, Boolean, DateTime, Date, DECIMAL, Table, create_engine
+from sqlalchemy.dialects.postgresql import UUID as SQLUUID, JSONB
+from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
+from database.db_session import BaseModel
+# import uuid
+from fastapi import HTTPException
+
+
+
+class Organization(BaseModel):
+    __tablename__ = "organizations"
+
+    name = Column(String, nullable=False, unique=True)
+    org_email = Column(String, nullable=False, unique=True)
+    country = Column(String, nullable=False)
+    type = Column(String, nullable=False)  # Private, Government
+    nature = Column(String, nullable=False)  # Single, Networked
+    employee_range = Column(String, nullable=False)  # e.g., 0-10
+    logos = Column(JSONB, nullable=True)  # Store logo paths
+    access_url = Column(String, nullable=False, unique=True)
+    is_active = Column(Boolean, default=True)
+    subscription_plan = Column(String, nullable=False, default="Basic")  # Basic, Premium
+  
+
+   
+
+    # Relationships
+    users = relationship("User", back_populates="organization", cascade="all, delete")
+    roles = relationship("Role", back_populates="organization", cascade="all, delete")
+    files = relationship("FileStorage", back_populates="organization", cascade="all, delete")
+    tenancies = relationship("Tenancy", back_populates="organization", cascade="all, delete")
+    settings = relationship("SystemSetting", back_populates="organization", cascade="all, delete")
+    dashboards = relationship("Dashboard", back_populates="organization", cascade="all, delete")
+    employees = relationship("Employee", back_populates="organization", cascade="all, delete-orphan")
+
+   
+    # Method to enforce active organization
+    @staticmethod
+    def check_organization_active(org_id: SQLUUID, db):
+        organization = db.query(Organization).filter(Organization.id == org_id).first()
+        if not organization or not organization.is_active:
+            raise HTTPException(status_code=403, detail="Organization is inactive.")
+    
+    def is_organization_active(self):
+        return self.is_active
+
+
+    @staticmethod
+    def toggle_active_status(org_id, new_status, db):
+        """Toggle active status of an organization."""
+        organization = db.query(Organization).filter(Organization.id == org_id).first()
+        if not organization:
+            raise HTTPException(status_code=404, detail="Organization not found.")
+        organization.is_active = new_status
+        db.commit()
+
+class Tenancy(BaseModel):
+    __tablename__ = "tenancies"
+
+    organization_id = Column(SQLUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=True)
+    billing_cycle = Column(String, nullable=False, default="Monthly")  # Monthly, Annually
+    terms_and_conditions_id = Column(SQLUUID(as_uuid=True), ForeignKey("terms_and_conditions.id", ondelete="CASCADE", onupdate="CASCADE"))
+    status = Column(String, default="Active")  # Active, Terminated, Pending
+
+    # Relationships
+    organization = relationship("Organization", back_populates="tenancies")
+    terms_and_conditions = relationship("TermsAndConditions", back_populates="tenancies")
+    bills = relationship("Bill", back_populates="tenancy", cascade="all, delete, delete-orphan")
+
+
+
+class TermsAndConditions(BaseModel):
+    __tablename__ = "terms_and_conditions"
+
+    title = Column(String, nullable=False)
+    content = Column(JSONB, nullable=False)  # Flexibility for dynamic content  # Store T&Cs as JSON for flexibility
+    version = Column(String, nullable=False)  # For historical tracking
+    is_active = Column(Boolean, default=True)
+
+    # Relationships
+    tenancies = relationship("Tenancy", back_populates="terms_and_conditions")
+
+
+
+class Bill(BaseModel):
+    __tablename__ = "bills"
+
+    tenancy_id = Column(SQLUUID(as_uuid=True), ForeignKey("tenancies.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    amount = Column(DECIMAL(precision=10, scale=2), nullable=False)
+    due_date = Column(Date, nullable=False)
+    status = Column(String, default="Unpaid")  # Unpaid, Paid, Overdue
+
+    # Relationships
+    tenancy = relationship("Tenancy", back_populates="bills")
+    payments = relationship("Payment", back_populates="bill", cascade="all, delete, delete-orphan")
+
+
+class Payment(BaseModel):
+    __tablename__ = "payments"
+
+    bill_id = Column(SQLUUID(as_uuid=True), ForeignKey("bills.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    amount_paid = Column(DECIMAL(precision=10, scale=2), nullable=False)
+    payment_date = Column(DateTime(timezone=True), default=func.now())
+    payment_method = Column(String, nullable=False)  # Card, Bank Transfer, Mobile Money
+    transaction_id = Column(String, unique=True, nullable=False)
+    status = Column(String, default="Success")  # Success, Failed, Pending
+
+    # Relationships
+    bill = relationship("Bill", back_populates="payments")

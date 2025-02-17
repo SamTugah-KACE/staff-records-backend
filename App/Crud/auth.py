@@ -1,0 +1,360 @@
+import datetime
+from uuid import uuid4, UUID
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect, UploadFile, Query, Response
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import httpx
+from sqlalchemy.orm import Session
+from typing import Dict, Optional, List, Union
+from Utils.rate_limiter import RateLimiter
+from database.db_session import get_db
+from Models.models import User, Token, Dashboard, Employee
+from Models.Tenants.organization import Organization
+from Models.Tenants.role import Role
+from Utils.security import Security  # contains verify_password and generate_token
+from Service.email_service import EmailService, send_email_notification
+from Utils.config import DevelopmentConfig
+from email_validator import EmailNotValidError
+from typing import List
+
+
+settings = DevelopmentConfig()
+
+rate_limiter = RateLimiter(max_attempts=3, period=60)  # 5 attempts per 60 seconds
+
+# def send_email_notification(recipient: str, subject: str, message: str) -> None:
+#     """
+#     Synchronously sends an email notification using the EmailService.
+#     This function wraps the email sending methods provided by your email service.
+#     """
+#     try:
+#         service = EmailService()
+#         # Here we call the synchronous version (which internally runs the async call)
+#         service.send_plain_text_email_sync([recipient], subject, message)
+        
+#     except EmailNotValidError as e:
+#         # Log the error or handle invalid email addresses
+#         raise Exception(f"Invalid email address: {recipient}") from e
+#     except Exception as e:
+#         # Log the exception as needed
+#         raise Exception("Failed to send email notification.") from e
+
+
+def is_facial_api_available() -> bool:
+    """
+    Checks the health of the external facial authentication API.
+    It performs a GET request to the API's /health endpoint.
+    Returns True if the API is up (HTTP 200); otherwise False.
+    """
+    url = f"{settings.FACIAL_AUTH_API_URL}/health"
+    try:
+        response = httpx.get(url, timeout=5.0)
+        return response.status_code == 200
+    except Exception as e:
+        # Log the exception if desired
+        return False
+
+async def authenticate_facial(username: str, image: UploadFile) -> bool:
+    """
+    Sends a multipart/form-data POST request to the external facial
+    authentication API with the provided username and image file.
+    
+    The external API should return JSON with an "authenticated" field.
+    If the response is not HTTP 200 or the field is False, an exception is raised.
+    """
+    url = f"{settings.FACIAL_AUTH_API_URL}/authenticate"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            # Prepare the form data with the username and image file.
+            # The external API is expected to handle a field named "username"
+            # and "file" (with filename and content_type).
+            form = {
+                "username": username,
+                "file": (image.filename, await image.read(), image.content_type)
+            }
+            response = await client.post(url, files=form)
+            if response.status_code == 200:
+                result = response.json()
+                # Expect the external API to return {"authenticated": true/false}
+                # return result.get("authenticated", False)
+                # Check the message field to decide success.
+                return result.get("message", "").lower() == "authentication successful"
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Facial authentication failed due to external API error."
+                )
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=504,
+            detail="Facial authentication API request timed out."
+        )
+
+
+# ==============================
+# 1. AUTHENTICATE_USER FUNCTION
+# ==============================
+async def authenticate_user(
+    background_task: BackgroundTasks,
+    db: Session,
+    username: str,
+    password: Optional[str] = None,
+    facial_image: Optional[UploadFile] = None,
+    request: Request = None,
+    response: Response = None
+) -> Dict:
+    """
+    Two-way login for a multi-tenant system.
+    
+    - If facial_image is provided and the external facial API is available,
+      authenticate using facial recognition.
+    - Otherwise, use traditional username/password.
+    - Prevent concurrent logins: if an active token exists for the user, send an email notification and deny new login.
+    - On successful login, generate a token, store it in the Token model, update last_login, and return user data
+      along with the organization's dashboard access URL.
+    """
+    # 1. Retrieve user by username (assume usernames are unique)
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    # 2. Enforce multi-tenancy: (you might later also verify organization is active)
+    Organization.check_organization_active(user.organization_id, db)
+    
+    # 3. Determine login option:
+    login_option = None
+    if facial_image is not None:
+        if is_facial_api_available():
+            # Resize the image to 300x300 (assume a helper function resize_image exists)
+            resized_image = await resize_image(facial_image, width=300, height=300)
+            if await authenticate_facial(username, resized_image):
+                login_option = "facial"
+            else:
+                # If facial authentication fails, fallback to password authentication if provided
+                if password is None:
+                    raise HTTPException(status_code=401, detail="Facial authentication failed and no password provided.")
+                # Else, continue to password check below.
+        else:
+            # External facial API is down; fall back to password
+            login_option = "password"
+    
+    # 4. If not using facial (or fallback), verify password.
+    if login_option != "facial":
+        if password is None:
+            raise HTTPException(status_code=401, detail="Password is required.")
+        
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+        # Apply rate limit before authentication
+        rate_limiter.check_rate_limit(db, user, request)
+
+        if not Security.verify_password(password, user.hashed_password):
+            # (Optionally log failed attempt in rate limiter)
+            rate_limiter.log_failed_attempt(user, request)  # Log failed attempt
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        login_option = "password"
+    
+    
+    
+    # 5. Prevent concurrent logins.
+    existing_token = db.query(Token).filter(
+        Token.user_id == user.id,
+        Token.organization_id == user.organization_id,
+        Token.expiration_period > datetime.datetime.utcnow()
+    ).first()
+
+    name = None
+    employee = db.query(Employee).filter(Employee.email == user.email, Employee.organization_id == user.organization_id).first()
+    if not employee:
+        name = None
+    else:
+        name = employee.title + " "+ employee.first_name
+
+    if existing_token:
+        
+
+        if not name:
+            name = user.username
+
+        # Send email notification about attempted concurrent login.
+        subject = "<strong>Concurrent Login Attempt Detected</strong>"
+        message = f"<p>Dear {name}, a login attempt was made while your account is active on another device. </p>" \
+                  f"<p>If this wasn't you, please contact support immediately.</p>"
+        
+        service = EmailService()
+        await service.send_email(background_task, recipients=[user.email], subject=subject, html_body=message)
+        
+        raise HTTPException(status_code=403, detail="User already logged in on another device. Please logout first.")
+    
+
+    # Reset failed login attempts on success
+    rate_limiter.reset_attempts(user)
+
+    # Prepare token payload (including last_activity for inactivity tracking).
+    now_ts = datetime.datetime.utcnow().timestamp()
+
+    # 6. Generate token data.
+    token_payload = {
+        "user_id": str(user.id),
+        "username": user.username,
+        "role_id": str(user.role_id),
+        "organization_id": str(user.organization_id),
+        "login_option": login_option,
+        "iat": now_ts,
+        "last_activity": now_ts
+    }
+    token_str = Security.generate_token(data=token_payload, expires_in=3600)
+    token_expiration = datetime.datetime.utcnow() + datetime.timedelta(seconds=3600)  # Token valid for 1 hour
+
+    print("\nGenerated token: ", token_str)
+
+    print("\n\n\nDecode: ", Security.decode_token(token_str))
+    
+    # 7. Save token to DB (simulate event trigger)
+    new_token = Token(
+        user_id=user.id,
+        organization_id=user.organization_id,
+        token=token_str,
+        expiration_period=token_expiration,
+        login_option=login_option,
+        last_activity=datetime.datetime.utcnow()
+    )
+    db.add(new_token)
+    db.commit()
+    
+    # 8. Update user's last login timestamp
+    user.last_login = datetime.datetime.utcnow()
+    db.commit()
+    
+    # 9. Retrieve dashboard info (simulate choosing a dashboard based on organization's dashboards)
+    dashboard = db.query(Dashboard).filter(
+        Dashboard.organization_id == user.organization_id
+    ).first()
+    dashboard_url = dashboard.access_url if dashboard else f"https://{user.organization.name}.myapp.com"
+    
+    #10 set cookies
+    response.set_cookie(
+        key="token",
+        value=token_str,
+        httponly=True,
+        secure=True,
+        samesite='None',
+        max_age=token_expiration
+    )
+
+
+
+
+
+    # 11. Return response.
+    return {
+        "name": name if name else "",
+        "username": user.username,
+        "email": user.email,
+        "token": token_str,
+        "token_expiration": token_expiration,
+        "role": user.role.name,
+        "permissions": user.role.permissions,
+        "organization_id": user.organization_id,
+        "organization_name": user.organization.name,
+        "dashboard_url": dashboard_url,
+        "login_option": login_option
+    }
+
+# ------------------------------
+# Helper: Resize Image (stub)
+# ------------------------------
+async def resize_image(image_file: UploadFile, width: int, height: int) -> UploadFile:
+    """
+    Resizes the given image to the specified width and height.
+    (Implement using PIL or another image library.)
+    For now, we simply return the image_file.
+    """
+    # In production, load the image with PIL, resize, then re-save to a BytesIO and create a new UploadFile.
+    return image_file
+
+
+
+security = HTTPBearer()
+
+# ============================================
+# 2. GET CURRENT USER DEPENDENCY (TOKEN CHECK)
+# ============================================
+
+
+# --------------------------------------------------------------------
+# GET CURRENT USER DEPENDENCY (Token Expiration & Inactivity Check)
+# --------------------------------------------------------------------
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer()),
+    db: Session = Depends(get_db)
+) -> dict:
+    """
+    Retrieves the current user based on the provided JWT token.
+    - Checks that the token is valid and not expired.
+    - Checks inactivity (15 minutes threshold) and logs out if exceeded.
+    - Updates the token's last_activity timestamp on each request.
+    - Retrieves the user and associated role data.
+    
+    Returns a dictionary with keys:
+      "user": the User model instance,
+      "role": the user's role name,
+      "permissions": the permissions from the user's role.
+    """
+    token_str = credentials.credentials
+    print("get_current_user: ", token_str)
+    token_data = Security.decode_token(token_str)
+    print("token_data: ", token_data)
+    if not token_data:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    # Check token expiration.
+    current_ts = datetime.datetime.utcnow().timestamp()
+    exp = token_data.get("exp")
+    print("exp: ", exp)
+    if not exp or current_ts > exp:
+        db.query(Token).filter(Token.token == token_str).delete()
+        db.commit()
+        raise HTTPException(status_code=401, detail="Token expired")
+    
+    # Check inactivity: if last_activity is older than 15 minutes.
+    last_activity_ts = token_data.get("last_activity")
+    if last_activity_ts:
+        inactivity = datetime.datetime.utcnow() - datetime.datetime.fromtimestamp(last_activity_ts)
+        if inactivity > datetime.timedelta(minutes=15):
+            db.query(Token).filter(Token.token == token_str).delete()
+            db.commit()
+            raise HTTPException(status_code=401, detail="Logged out due to inactivity")
+    
+    # Update token's last_activity timestamp.
+    new_last_activity = datetime.datetime.utcnow()
+    db.query(Token).filter(Token.token == token_str).update({"last_activity": new_last_activity})
+    db.commit()
+    
+    # Retrieve the user.
+    user_id = token_data.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+    try:
+        user = db.query(User).filter(User.id == UUID(user_id)).first()
+        print("user obj: ", user.id)
+    except Exception:
+        raise HTTPException(status_code=401, detail="User not found")
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    
+    # Retrieve the user's role.
+    role_id = token_data.get("role_id")
+    if not role_id:
+        raise HTTPException(status_code=401, detail="Token missing role information")
+    role_obj = db.query(Role).filter(Role.id == UUID(role_id)).first()
+    if not role_obj:
+        raise HTTPException(status_code=400, detail="Unable to fetch user privileges")
+    
+    return {
+        "id":user.id,
+        "user": user,
+        "role": role_obj.name,
+        "permissions": role_obj.permissions
+    }

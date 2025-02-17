@@ -1,0 +1,39 @@
+from fastapi import FastAPI, APIRouter
+# from .apis import (
+#     organization,
+#     role,
+#     user,
+#     employee,
+#     academic_qualification,
+#     employment_history,
+#     emergency_contact,
+#     next_of_kin,
+#     file_storage,
+# ) 
+# from .organization import router as organization
+from .main import app as organization
+from .uploadfile import app as uploadfile
+from .default import app as bank
+from .user_api import router as user
+from .apis import router as mix
+from .auth import router as auth
+# from notification.socket import router as notif
+
+api =APIRouter()
+
+# Include Routers
+api.include_router(uploadfile, prefix="/api/uploadfile", tags=["UploadFile"])
+api.include_router(organization, prefix="/api/organizations", tags=["Organizations"])
+api.include_router(mix, prefix="/api")
+api.include_router(user, prefix="/api/users", tags=["User Management"])
+api.include_router(bank, prefix="/api/default", tags=["Defaults"])
+api.include_router(auth, prefix="/api/auth", tags=["Auth"])
+# api.include_router(notif, prefix="/api/notification", tags=["Notifications"])
+
+
+# api.include_router(employee.router, prefix="/api/employees", tags=["Employees"])
+# api.include_router(academic_qualification.router, prefix="/api/academic-qualifications", tags=["AcademicQualifications"])
+# api.include_router(employment_history.router, prefix="/api/employment-history", tags=["EmploymentHistory"])
+# api.include_router(emergency_contact.router, prefix="/api/emergency-contacts", tags=["EmergencyContacts"])
+# api.include_router(next_of_kin.router, prefix="/api/next-of-kin", tags=["NextOfKin"])
+# api.include_router(file_storage.router, prefix="/api/file-storage", tags=["FileStorage"])
