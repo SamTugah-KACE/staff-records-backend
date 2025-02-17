@@ -88,13 +88,14 @@ class BaseConfig(BaseSettings):
 
     GCS_CREDENTIALS: dict  # We want this as a dict
     @field_validator("GCS_CREDENTIALS", mode="before")
-    def parse_gcp_credentials(cls, value):
-        # If the value is a string, parse it from JSON
+    def parse_gcs_credentials(cls, value):
         if isinstance(value, str):
+            if not value.strip():
+                raise ValueError("GCS_CREDENTIALS is empty. Please provide valid JSON credentials.")
             try:
                 return json.loads(value)
             except json.JSONDecodeError as e:
-                raise ValueError(f"Invalid JSON for gcp_credentials: {e}")
+                raise ValueError(f"Invalid JSON for GCS_CREDENTIALS: {e}")
         return value
 
     class Config:

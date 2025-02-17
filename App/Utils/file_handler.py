@@ -153,22 +153,22 @@ async def delete_file_from_local(file_path: str):
 
 def get_gcs_client():
     # Get the path to the Google Cloud API JSON file from an environment variable
-    gcloud_credentials_path = settings.GOOGLE_APPLICATION_CREDENTIALS
-    print("path: ", gcloud_credentials_path)
-    print(os.path.exists(gcloud_credentials_path))
+    # Check if the GOOGLE_APPLICATION_CREDENTIALS file exists.
+    gcloud_credentials_path = settings.GOOGLE_APPLICATION_CREDENTIALS if hasattr(settings, "GOOGLE_APPLICATION_CREDENTIALS") else None
+    # print("path: ", gcloud_credentials_path)
+    # print(os.path.exists(gcloud_credentials_path))
     
-    if os.path.exists(gcloud_credentials_path):
+    if gcloud_credentials_path and os.path.exists(gcloud_credentials_path):
         with open(gcloud_credentials_path) as f:
             credentials_info = json.load(f)
     else:
-        print("else")
         credentials_info = settings.GCS_CREDENTIALS
         if not credentials_info or "private_key" not in credentials_info:
             raise ValueError("Invalid or missing GCS credentials.")
 
     return storage.Client.from_service_account_info(
         credentials_info,
-        project=credentials_info.get("project_id")  # Explicitly pass the project id
+        project=credentials_info.get("project_id")
     )
 
 client = get_gcs_client()
