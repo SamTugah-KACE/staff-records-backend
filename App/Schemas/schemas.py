@@ -173,11 +173,11 @@ class TenancySchema(BaseSchema):
     status: str
     terms_and_conditions_id: Optional[UUID]
 
-    @field_validator("billing_cycle")
-    def validate_billing_cycle(cls, value):
-        if value not in ["Monthly", "Mid-Year", "Annually"]:
-            raise ValueError("Billing cycle must be 'Monthly' 'Mid-Year' or 'Annually'")
-        return value
+    # @field_validator("billing_cycle")
+    # def validate_billing_cycle(cls, value):
+    #     if value not in ["Monthly", "Mid-Year", "Annually"]:
+    #         raise ValueError("Billing cycle must be 'Monthly' 'Mid-Year' or 'Annually'")
+    #     return value
     
     class Config:
         from_attributes = True
