@@ -82,65 +82,65 @@ async def create_organization_form(
     user_images: Optional[List[UploadFile]] = File(None),  # User profile images
     tenancies: Optional[str] = Form(json.dumps([
             {
-                "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                "start_date": "2025-01-01",
-                "billing_cycle": "Monthly",
-                "terms_and_conditions_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                "terms_and_conditions": [
-                    {
-                        "title": "Default Terms",
-                        "content": {"agreement": "Sample agreement text"},
-                        "version": "1.0",
-                        "is_active": True
-                    }
-                ]
+                # "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                # "start_date": "2025-01-01",
+                # "billing_cycle": "Monthly",
+                # "terms_and_conditions_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                # "terms_and_conditions": [
+                #     {
+                #         "title": "Default Terms",
+                #         "content": {"agreement": "Sample agreement text"},
+                #         "version": "1.0",
+                #         "is_active": True
+                #     }
+                # ]
             }
         ])),  # JSON string for tenancies
-    roles: Optional[str] = File(json.dumps([{
-      "name": "Administrator",
-      "permissions": {"read": "all", "write": "all", "delete": "all"},
-      "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-    },
-    {
-        "name": "HR", 
-        "permissions": {"admin": False, "Deputy":True, "read": "all", "write": "all", "delete": "all"},
-        "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6" 
-        },
-    {
-        "name": "User", 
-        "permissions": {"admin": False, "Deputy": False, "read": "all", "write": "null", "delete": "soft delete"},
-        "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6" 
-        },
+    roles: Optional[str] = File(json.dumps([{}
+    #   "name": "Administrator",
+    #   "permissions": {"read": "all", "write": "all", "delete": "all"},
+    #   "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+    # },
+    # {
+    #     "name": "HR", 
+    #     "permissions": {"admin": False, "Deputy":True, "read": "all", "write": "all", "delete": "all"},
+    #     "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6" 
+    #     },
+    # {
+    #     "name": "User", 
+    #     "permissions": {"admin": False, "Deputy": False, "read": "all", "write": "null", "delete": "soft delete"},
+    #     "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6" 
+    #     },
 ])),  # JSON string for roles
 employees: Optional[str] = Form(json.dumps([{
-    "first_name": "",
-    "middle_name":"",
-    "last_name": "",
-    "date_of_birth": "1980-01-01",
-    "email": "vboat54@gmail.com",
-    "contact_info": {},
-    "hire_date": str(current_date),
-    "termination_date": str(next_year),
-    "custom_data": {},
-    "profile_image_path": "google.com/sam",
-    "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+    # "first_name": "",
+    # "middle_name":"",
+    # "last_name": "",
+    # "date_of_birth": "1980-01-01",
+    # "email": "vboat54@gmail.com",
+    # "contact_info": {},
+    # "hire_date": str(current_date),
+    # "termination_date": str(next_year),
+    # "custom_data": {},
+    # "profile_image_path": "google.com/sam",
+    # "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
 }])),
     users: Optional[str] = Form(json.dumps([
             {
-                "username": "",
-                "email": "kduah54@gmail.com",   
-                "hashed_password": "",
-                "role_id": "123e4567-e89b-12d3-a456-426614174000",
-                "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", 
-                "image_path": "google.com/sam"
+                # "username": "",
+                # "email": "kduah54@gmail.com",   
+                # "hashed_password": "",
+                # "role_id": "123e4567-e89b-12d3-a456-426614174000",
+                # "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", 
+                # "image_path": "google.com/sam"
                 
             }
 
         ])),  # JSON string for users
     settings: Optional[str] = Form(json.dumps([{
-        "setting_name": "dashboard_theme",
-        "setting_value": {         "color": "blue",         "font_size": "12px"       } ,
-        "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        # "setting_name": "dashboard_theme",
+        # "setting_value": {         "color": "blue",         "font_size": "12px"       } ,
+        # "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
     }])),  # JSON string for settings
     db: Session = Depends(get_db),
     # email_smtp_config: dict = Depends(get_smtp_config),

@@ -39,6 +39,7 @@ class Title(str, Enum):
 
 class BillingCycle(str, Enum):
     monthly = "Monthly"
+    mid_year = "Mid-Year"
     annually = "Annually"
 
 class TenancyStatus(str, Enum):
@@ -174,8 +175,8 @@ class TenancySchema(BaseSchema):
 
     @field_validator("billing_cycle")
     def validate_billing_cycle(cls, value):
-        if value not in ["Monthly", "Annually"]:
-            raise ValueError("Billing cycle must be 'Monthly' or 'Annually'")
+        if value not in ["Monthly", "Mid-Year", "Annually"]:
+            raise ValueError("Billing cycle must be 'Monthly' 'Mid-Year' or 'Annually'")
         return value
     
     class Config:
