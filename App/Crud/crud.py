@@ -22,7 +22,7 @@ from Schemas.schemas import *
 from sqlalchemy.orm import joinedload
 from Utils.serialize_4_json import serialize_for_json
 import json 
-from Utils.security import pwd_context
+from Utils.security import pwd_context, Security
 
 
 
@@ -232,8 +232,12 @@ class CRUDBase:
             obj_data["created_by"] = created_by
 
         # Generate dynamic organization URL
-        obj_data["access_url"] = f"https://{obj_data['name'].lower().replace(' ', '-')}.myapp.com"
+        # obj_data["access_url"] = f"https://{obj_data['name'].lower().replace(' ', '-')}.myapp.com"
         
+        slug = f"{obj_data['name'].lower().replace(' ', '-')}-{Security.generate_random_char(8)}"
+        obj_data["access_url"] = f"https://gi-kace-solutions.onrender.com/{slug}"
+
+
         existing_org = db.query(Organization).filter(Organization.name == obj_data["name"].strip()).first()
         if existing_org:
             raise HTTPException(
