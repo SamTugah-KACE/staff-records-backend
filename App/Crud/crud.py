@@ -17,12 +17,13 @@ from Service.gcs_service import GoogleCloudStorage
 from Utils.config import DevelopmentConfig, get_config
 from email_service import *
 from Service.file_service import upload_file
-logging.basicConfig(level=logging.DEBUG)
+# logging.basicConfig(level=logging.DEBUG)
 from Schemas.schemas import *
 from sqlalchemy.orm import joinedload
 from Utils.serialize_4_json import serialize_for_json
 import json 
 from Utils.security import pwd_context, Security
+from Utils.util import get_organization_acronym
 
 
 
@@ -234,7 +235,10 @@ class CRUDBase:
         # Generate dynamic organization URL
         # obj_data["access_url"] = f"https://{obj_data['name'].lower().replace(' ', '-')}.myapp.com"
         
-        slug = f"{obj_data['name'].lower().replace(' ', '-')}-{Security.generate_random_char(8)}"
+        # slug = f"{obj_data['name'].lower().replace(' ', '-')}-{Security.generate_random_char(8)}"
+        ab = get_organization_acronym(obj_data['name'].lower())
+        print("\n\nabbr.: ", ab)
+        slug = f"{ab}-{Security.generate_random_char(8)}"
         obj_data["access_url"] = f"https://gi-kace-solutions.onrender.com/{slug}"
 
 
@@ -385,9 +389,11 @@ class CRUDBase:
                     # Log user creation
                     self.log_audit(db, "CREATE", "users", user_obj.id, created_by or user_obj.id)
 
+                    signin_page = obj_data["access_url"]+"/signin"
+                    print("signin page: ", signin_page)
                     email_service = EmailService()  # Instantiate the email service
                     # Send email with credentials
-                    email_body = get_email_template(username, password, obj_data["access_url"])
+                    email_body = get_email_template(username, password, signin_page)
                     await email_service.send_email(background_tasks, recipients=[user_data["email"]], subject="Account Credentials", html_body=email_body)
 
                    # Call External API for Facial Authentication Username Update
