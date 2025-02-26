@@ -254,6 +254,7 @@ async def authenticate_user(
     # 11. Return response.
     return {
         "name": name if name else "",
+        "image_path": user.image_path,
         "username": user.username,
         "email": user.email,
         "token": token_str,
