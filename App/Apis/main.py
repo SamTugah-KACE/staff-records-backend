@@ -23,7 +23,7 @@ from Schemas.schemas import (OrganizationCreateSchema, OrganizationSchema, RoleC
                          NextOfKinCreateSchema, NextOfKinSchema, FileStorageSchema,
                          AuditLogSchema, SystemSettingSchema, DashboardSchema)
 
-from Utils.util import  get_smtp_config  # Import your utility classes
+from Utils.util import   get_organization_acronym  # Import your utility classes
 import json
 from Service.gcs_service import GoogleCloudStorage
 from Utils.config import DevelopmentConfig, get_config
@@ -187,7 +187,7 @@ employees: Optional[str] = Form(json.dumps([{
         if logos:
             logo_files = [{"filename": file.filename, "content": await file.read()} for file in logos]
           
-            logo_urls = gcs_client.upload_to_gcs(files=logo_files, folder=f"organizations/{name}/logos") or {}
+            logo_urls = gcs_client.upload_to_gcs(files=logo_files, folder=f"organizations/{get_organization_acronym(name)}/logos") or {}
           
 
         # Process uploaded files for user profile images
@@ -200,7 +200,7 @@ employees: Optional[str] = Form(json.dumps([{
                 )
 
             user_files = [{"filename": file.filename, "content": await file.read()} for file in user_images]
-            image_urls = gcs_client.upload_to_gcs(files=user_files, folder=f"organizations/{name}/user_profiles") or {}
+            image_urls = gcs_client.upload_to_gcs(files=user_files, folder=f"organizations/{get_organization_acronym(name)}/user_profiles") or {}
 
              # Attach image paths to users
             for i, user in enumerate(users_data):

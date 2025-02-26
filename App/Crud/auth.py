@@ -226,12 +226,16 @@ async def authenticate_user(
     # 8. Update user's last login timestamp
     user.last_login = datetime.datetime.utcnow()
     db.commit()
+
+    org = db.query(Organization).filter(Organization.id == user.organization_id).first()
+
+    dash = org.access_url
     
     # 9. Retrieve dashboard info (simulate choosing a dashboard based on organization's dashboards)
     dashboard = db.query(Dashboard).filter(
         Dashboard.organization_id == user.organization_id
     ).first()
-    dashboard_url = dashboard.access_url if dashboard else f"https://{user.organization.name}.myapp.com"
+    dashboard_url = dashboard.access_url if dashboard else f"{dash}"
     
     #10 set cookies
     response.set_cookie(
