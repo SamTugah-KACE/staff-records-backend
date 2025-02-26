@@ -65,7 +65,7 @@ system_setting_crud = CRUDBase(SystemSetting)
 
 
 
-@app.get("/organizations/slug/{slug}")
+@app.get("/slug/{slug}")
 def get_org_by_slug(slug: str, db: Session = Depends(get_db)):
     # Here we assume that access_url is stored as "https://gi-kace-solutions.onrender.com/{slug}"
     # One option is to filter using a LIKE condition:
@@ -75,7 +75,7 @@ def get_org_by_slug(slug: str, db: Session = Depends(get_db)):
     return org
 
 
-@app.post("/organizations/create-form/",  response_model=OrganizationSchema, status_code=status.HTTP_201_CREATED)
+@app.post("/create-form/",  response_model=OrganizationSchema, status_code=status.HTTP_201_CREATED)
 async def create_organization_form(
     background_tasks: BackgroundTasks,
     name: str = Form(...),
