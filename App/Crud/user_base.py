@@ -436,7 +436,7 @@ class UserCRUD:
 
             # Step 5: **Generate Credentials**
             user_name =  f"{employee_data.get('first_name').lower()}{employee_data.get('last_name').lower()}{Security.generate_random_string(4)}" or Security.generate_random_string(6)
-            password = Security.generate_random_string(6)
+            password = Security.generate_random_char(6)
             hashed_password = self.hash_password(password)
 
             
@@ -523,7 +523,7 @@ class UserCRUD:
 
             email_service = EmailService()  # Instantiate the email service
             # Send email with credentials
-            email_body = get_email_template(user_name, password, org.access_url)
+            email_body = get_email_template(user_name, password, org.access_url, org.name)
             await email_service.send_email(background_tasks, recipients=[email], subject="Account Credentials", html_body=email_body)
 
         

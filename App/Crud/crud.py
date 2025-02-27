@@ -41,7 +41,7 @@ CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)  # Pydantic crea
 # pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 # Constants for Random Username and Password Generation
-CHARACTER_SET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()"
+CHARACTER_SET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 USERNAME_LENGTH = 8
 PASSWORD_LENGTH = 12
 
