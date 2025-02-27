@@ -9,6 +9,7 @@ from Utils.email_utils import parse_html_from_template
 from Utils.config import *
 import string
 import random
+from Utils.util import get_organization_acronym
 
 settings = DevelopmentConfig()
 
@@ -130,9 +131,12 @@ class EmailService:
         await self.send_email(background_tasks, recipients, subject, template_name=template_name, template_data=template_data)
 
     # Define the email template
-def get_email_template(username: str, password: str, href: str) -> str:
+def get_email_template(username: str, password: str, href: str, org_name:str=None) -> str:
+    name = "GI-KACE"
+    if org_name:
+        name = get_organization_acronym(org_name)
     return f"""
-    <h2>GI-KACE Staff Records System</h2>
+    <h2>{name} Staff Records System</h2>
     <p>Your account has been created successfully. Below are your login credentials:</p>
     <p><strong>Username:</strong> {username}</p>
     <p><strong>Password:</strong> {password}</p>

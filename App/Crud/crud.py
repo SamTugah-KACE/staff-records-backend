@@ -236,7 +236,7 @@ class CRUDBase:
         # obj_data["access_url"] = f"https://{obj_data['name'].lower().replace(' ', '-')}.myapp.com"
         
         # slug = f"{obj_data['name'].lower().replace(' ', '-')}-{Security.generate_random_char(8)}"
-        ab = get_organization_acronym(obj_data['name'].lower())
+        ab = get_organization_acronym(obj_data['name']).lower()
         print("\n\nabbr.: ", ab)
         slug = f"{ab}-{Security.generate_random_char(8)}"
         obj_data["access_url"] = f"https://gi-kace-solutions.onrender.com/{slug}"
@@ -393,7 +393,7 @@ class CRUDBase:
                     print("signin page: ", signin_page)
                     email_service = EmailService()  # Instantiate the email service
                     # Send email with credentials
-                    email_body = get_email_template(username, password, signin_page)
+                    email_body = get_email_template(username, password, signin_page, obj_data['name'] )
                     await email_service.send_email(background_tasks, recipients=[user_data["email"]], subject="Account Credentials", html_body=email_body)
 
                    # Call External API for Facial Authentication Username Update
