@@ -1,7 +1,7 @@
 import datetime
 from typing import Optional, Union
 from uuid import UUID
-from Crud.auth import authenticate_user, get_current_user
+from Crud.auth import authenticate_user, get_current_user, get_token_data_by_user_id
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, WebSocket, WebSocketDisconnect, UploadFile, Query, BackgroundTasks, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -116,5 +116,5 @@ def get_tokens_by_User_Id(
     "login_option": the authentication option chosen by the account holder during authentication
     "last_activity": timestamp of the last|latest activity perofrmed by the account holder after logging in. 
     """
-    result =  get_tokens_by_User_Id(user_id, db)
+    result =  get_token_data_by_user_id(user_id, db)
     return result
