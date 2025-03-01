@@ -154,7 +154,7 @@ async def authenticate_user(
         # Apply rate limit before authentication
         rate_limiter.check_rate_limit(db, user, request)
 
-        authenticate_password = await global_security.verify_password(password, user.hashed_password)
+        authenticate_password =  global_security.verify_password(password, user.hashed_password)
 
         if not authenticate_password:
             # (Optionally log failed attempt in rate limiter)
@@ -211,7 +211,7 @@ async def authenticate_user(
         "iat": now_ts,
         "last_activity": now_ts
     }
-    token_str = await global_security.generate_token(data=token_payload, expires_in=3600)
+    token_str =  global_security.generate_token(data=token_payload, expires_in=3600)
     token_expiration = datetime.datetime.utcnow() + datetime.timedelta(seconds=3600)  # Token valid for 1 hour
 
     print("\nGenerated token: ", token_str)

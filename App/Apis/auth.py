@@ -59,7 +59,7 @@ def logout_user(
 async def login_endpoint(
     background_task: BackgroundTasks,
     username: str = Form(...),
-    password: Optional[str] = None,
+    password: Optional[str] = Form(None),
     # facial_image: Optional[UploadFile] = File(None),
     facial_image: Optional[Union[UploadFile, str]] = File(None),
     request: Request = None,
