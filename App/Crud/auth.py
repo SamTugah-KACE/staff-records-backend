@@ -364,3 +364,33 @@ async def get_current_user(
         "role": role_obj.name,
         "permissions": role_obj.permissions
     }
+
+
+
+def get_token_data_by_user_id( userid: UUID, db: Session = Depends(get_db)) -> dict:
+    """
+    Retrieves the token data based on the logged-in User ID.
+    
+
+    Returns a dictionary with keys:
+    "organization_id": the User's organization ID,
+    "token": the generated token,
+    "expiration_period": the generated token expiration period.
+    "login_option": the authentication option chosen by the account holder during authentication
+    "last_activity": timestamp of the last|latest activity perofrmed by the account holder after logging in. 
+    """
+    data
+    token = db.query(Token).filter(Token.user_id == userid).first()
+
+    if token:
+        data = {
+                "organization_id": token.organization_id,
+                "token": token.token,
+                "expiration_period": token.expiration_period,
+                "login_option": token.login_option,
+                "last_activity": token.last_activity
+            }
+    else:
+        raise HTTPException(status_code=400, detail=f"No existing Token Data for the User with ID '{userid}'")
+    return data
+   

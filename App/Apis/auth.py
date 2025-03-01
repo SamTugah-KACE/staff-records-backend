@@ -25,9 +25,6 @@ router = APIRouter()
 # --------------------------------------------------------------------
 # LOGOUT ENDPOINT (Clears Token Data)
 # --------------------------------------------------------------------
-
-
-
 @router.post("/logout", tags=["Auth"])
 def logout_user(
     db: Session = Depends(get_db),
@@ -100,3 +97,24 @@ def get_logs(
         return {"organization_id": str(organization_id), "date": log_date, "logs": log_content}
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Log file not found")
+
+
+
+@router.get("/token", tags=["Token"])
+def get_tokens_by_User_Id(
+    user_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieves the token data based on the logged-in User ID.
+    
+
+    Returns a dictionary with keys:
+    "organization_id": the User's organization ID,
+    "token": the generated token,
+    "expiration_period": the generated token expiration period.
+    "login_option": the authentication option chosen by the account holder during authentication
+    "last_activity": timestamp of the last|latest activity perofrmed by the account holder after logging in. 
+    """
+    result =  get_tokens_by_User_Id(userid=user_id, db=db)
+    return result
