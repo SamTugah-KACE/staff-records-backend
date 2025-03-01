@@ -32,7 +32,18 @@ from Schemas.schemas import (
 )
 from Crud.base import CRUDBase
 from Crud.async_base import CRUDBase as AsyncCRUDBase
+from Utils.config import DevelopmentConfig
 
+
+
+
+settings = DevelopmentConfig()
+
+
+
+# Initialize the global Security instance.
+# In a multi-tenant system sharing one schema, a common secret key is often used.
+global_security = Security(secret_key=settings.SECRET_KEY, algorithm=settings.ALGORITHM, token_expire_minutes=60)
 
 router = APIRouter()
 
@@ -156,7 +167,7 @@ async def create_employee(
 ):
     try:
         # Generate a temporary plain-text password for the new user.
-        plain_password = Security.generate_random_string(6)
+        plain_password = global_security.generate_random_string(6)
         # Attach the generated password as a transient attribute.
         # (Pydantic models allow you to set arbitrary attributes.)
         emp_data._plain_password = plain_password

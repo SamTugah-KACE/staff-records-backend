@@ -24,6 +24,17 @@ from Utils.serialize_4_json import serialize_for_json
 import json 
 from Utils.security import pwd_context, Security
 from Utils.util import get_organization_acronym
+from Utils.config import DevelopmentConfig
+
+
+
+
+settings = DevelopmentConfig()
+
+
+# Initialize the global Security instance.
+# In a multi-tenant system sharing one schema, a common secret key is often used.
+global_security = Security(secret_key=settings.SECRET_KEY, algorithm=settings.ALGORITHM, token_expire_minutes=60)
 
 
 
@@ -238,7 +249,7 @@ class CRUDBase:
         # slug = f"{obj_data['name'].lower().replace(' ', '-')}-{Security.generate_random_char(8)}"
         ab = get_organization_acronym(obj_data['name']).lower()
         print("\n\nabbr.: ", ab)
-        slug = f"{ab}-{Security.generate_random_char(8)}"
+        slug = f"{ab}-{await global_security.generate_random_char(8)}"
         obj_data["access_url"] = f"https://gi-kace-solutions.onrender.com/{slug}"
 
 

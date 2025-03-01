@@ -17,9 +17,14 @@ from email_validator import EmailNotValidError
 from typing import List
 
 
+
 settings = DevelopmentConfig()
 
 rate_limiter = RateLimiter(max_attempts=3, period=60)  # 5 attempts per 60 seconds
+
+# Initialize the global Security instance.
+# In a multi-tenant system sharing one schema, a common secret key is often used.
+global_security = Security(secret_key=settings.SECRET_KEY, algorithm=settings.ALGORITHM, token_expire_minutes=60)
 
 # def send_email_notification(recipient: str, subject: str, message: str) -> None:
 #     """
@@ -149,7 +154,7 @@ async def authenticate_user(
         # Apply rate limit before authentication
         rate_limiter.check_rate_limit(db, user, request)
 
-        if not Security.verify_password(password, user.hashed_password):
+        if not await global_security.verify_password(password, user.hashed_password):
             # (Optionally log failed attempt in rate limiter)
             rate_limiter.log_failed_attempt(user, request)  # Log failed attempt
             raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -204,12 +209,12 @@ async def authenticate_user(
         "iat": now_ts,
         "last_activity": now_ts
     }
-    token_str = Security.generate_token(data=token_payload, expires_in=3600)
+    token_str = await global_security.generate_token(data=token_payload, expires_in=3600)
     token_expiration = datetime.datetime.utcnow() + datetime.timedelta(seconds=3600)  # Token valid for 1 hour
 
     print("\nGenerated token: ", token_str)
 
-    print("\n\n\nDecode: ", Security.decode_token(token_str))
+    print("\n\n\nDecode: ", await global_security.decode_token(token_str))
     
     # 7. Save token to DB (simulate event trigger)
     new_token = Token(
@@ -310,7 +315,7 @@ async def get_current_user(
     """
     token_str = credentials.credentials
     print("get_current_user: ", token_str)
-    token_data = Security.decode_token(token_str)
+    token_data = await global_security.decode_token(token_str)
     print("token_data: ", token_data)
     if not token_data:
         raise HTTPException(status_code=401, detail="Invalid token")

@@ -47,6 +47,12 @@ settings = DevelopmentConfig()
 
 
 
+
+# Initialize the global Security instance.
+# In a multi-tenant system sharing one schema, a common secret key is often used.
+global_security = Security(secret_key=settings.SECRET_KEY, algorithm=settings.ALGORITHM, token_expire_minutes=60)
+
+
 # from fastapi import HTTPException, UploadFile, BackgroundTasks
 # from sqlalchemy.orm import Session
 # from uuid import UUID
@@ -435,8 +441,8 @@ class UserCRUD:
 
 
             # Step 5: **Generate Credentials**
-            user_name =  f"{employee_data.get('first_name').lower()}{employee_data.get('last_name').lower()}{Security.generate_random_string(4)}" or Security.generate_random_string(6)
-            password = Security.generate_random_char(6)
+            user_name =  f"{employee_data.get('first_name').lower()}{employee_data.get('last_name').lower()}{await global_security.generate_random_string(4)}" or await global_security.generate_random_string(6)
+            password = await global_security.generate_random_char(6)
             hashed_password = self.hash_password(password)
 
             
@@ -682,7 +688,7 @@ class UserCRUD:
         rate_limiter.check_rate_limit(db, user, request)
 
         # Verify password
-        if not Security.verify_password(password, user.hashed_password):
+        if not await global_security.verify_password(password, user.hashed_password):
             rate_limiter.log_failed_attempt(user, request)  # Log failed attempt
             raise HTTPException(status_code=401, detail="Invalid credentials")
 
@@ -696,7 +702,7 @@ class UserCRUD:
             "role_id": str(user.role_id),
             "organization_id": str(user.organization_id),
         }
-        token = Security.generate_token(token_data)
+        token = await global_security.generate_token(token_data)
 
         return {
             "username": user.username,
