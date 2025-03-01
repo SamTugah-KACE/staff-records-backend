@@ -251,7 +251,8 @@ async def authenticate_user(
         httponly=True,
         secure=True,
         samesite='None',
-        max_age=token_expiration
+        expires=token_expiration,
+        path="/"
     )
 
 
