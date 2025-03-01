@@ -16,7 +16,7 @@ from Utils.config import DevelopmentConfig
 from email_validator import EmailNotValidError
 from typing import List
 
-
+from Schemas.schemas import UserSchema
 
 settings = DevelopmentConfig()
 
@@ -155,7 +155,7 @@ async def authenticate_user(
         rate_limiter.check_rate_limit(db, user, request)
 
         authenticate_password =  global_security.verify_password(password, user.hashed_password)
-
+        print("\nauthenticate password: ", authenticate_password)
         if not authenticate_password:
             # (Optionally log failed attempt in rate limiter)
             rate_limiter.log_failed_attempt(user, request)  # Log failed attempt
@@ -256,14 +256,15 @@ async def authenticate_user(
 
 
 
-
+    # Instead of returning the raw 'user' object, convert it using your schema:
+    user_serialized = UserSchema.model_validate(user)
 
     # 11. Return response.
     return {
         "name": name if name else "",
         "image_path": user.image_path,
         "username": user.username,
-        "user":user,
+        "user":user_serialized,
         "email": user.email,
         "token": token_str,
         "token_expiration": token_expiration,
