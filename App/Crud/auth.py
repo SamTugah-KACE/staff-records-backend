@@ -154,7 +154,9 @@ async def authenticate_user(
         # Apply rate limit before authentication
         rate_limiter.check_rate_limit(db, user, request)
 
-        if not await global_security.verify_password(password, user.hashed_password):
+        authenticate_password = await global_security.verify_password(password, user.hashed_password)
+
+        if not authenticate_password:
             # (Optionally log failed attempt in rate limiter)
             rate_limiter.log_failed_attempt(user, request)  # Log failed attempt
             raise HTTPException(status_code=401, detail="Invalid credentials")
