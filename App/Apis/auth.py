@@ -116,5 +116,5 @@ def get_tokens_by_User_Id(
     "login_option": the authentication option chosen by the account holder during authentication
     "last_activity": timestamp of the last|latest activity perofrmed by the account holder after logging in. 
     """
-    result =  get_tokens_by_User_Id(userid=user_id, db=db)
+    result =  get_tokens_by_User_Id(user_id, db)
     return result
