@@ -212,7 +212,7 @@ async def authenticate_user(
         "last_activity": now_ts
     }
     token_str =  global_security.generate_token(data=token_payload, expires_in=3600)
-    token_expiration = datetime.datetime.utcnow() + datetime.timedelta(seconds=3600)  # Token valid for 1 hour
+    token_expiration = (datetime.datetime.utcnow() + datetime.timedelta(seconds=3600)).strftime("%a, %d %b %Y %H:%M:%S GMT")  # Token valid for 1 hour
 
     print("\nGenerated token: ", token_str)
 
