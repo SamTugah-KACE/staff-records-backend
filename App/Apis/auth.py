@@ -86,7 +86,7 @@ async def login_endpoint(
 # --------------------------------------------------------------------
 # RATE LIMITER LOGS ENDPOINT
 # --------------------------------------------------------------------
-@router.get("/logs", tags=["Logs"])
+@router.get("/logs")
 def get_logs(
     organization_id: UUID,
     log_date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format (defaults to today)")
@@ -107,7 +107,7 @@ def get_logs(
 
 
 
-@router.get("/token", tags=["Token"])
+@router.get("/token")
 def get_tokens_by_User_Id(
     user_id: UUID,
     db: Session = Depends(get_db)

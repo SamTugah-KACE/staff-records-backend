@@ -58,14 +58,14 @@ class EmailService:
         return ''.join(random.choice(characters) for _ in range(length))
     
     # Define the email template
-    def get_email_template(username: str, password: str, href: str) -> str:
-        return f"""
-        <h2>GI-KACE Staff Records System</h2>
-        <p>Your account has been created successfully. Below are your login credentials:</p>
-        <p><strong>Username:</strong> {username}</p>
-        <p><strong>Password:</strong> {password}</p>
-        <p>Please change your password after logging in for the first time using the link: <a href='{href}'>Login</a></p>
-        """
+    # def get_email_template(username: str, password: str, href: str) -> str:
+    #     return f"""
+    #     <h2>GI-KACE Staff Records System</h2>
+    #     <p>Your account has been created successfully. Below are your login credentials:</p>
+    #     <p><strong>Username:</strong> {username}</p>
+    #     <p><strong>Password:</strong> {password}</p>
+    #     <p>Please change your password after logging in for the first time using the link: <a href='{href}'>Login</a></p>
+    #     """
 
     def account_emergency() -> str:
         return """
@@ -132,11 +132,17 @@ class EmailService:
 
     # Define the email template
 def get_email_template(username: str, password: str, href: str, org_name:str=None) -> str:
-    name = "GI-KACE"
-    if org_name:
+    print("\n\norg_name in email_template:: ", org_name)
+    name = None
+    if org_name is None:
+        name = "GI-KACE"
+    else:
         name = get_organization_acronym(org_name)
+        
+
+    print("\nname:: ", name)
     return f"""
-    <h2>{name} Staff Records System</h2>
+    <h2>{name} <br/>Staff Records System</h2>
     <p>Your account has been created successfully. Below are your login credentials:</p>
     <p><strong>Username:</strong> {username}</p>
     <p><strong>Password:</strong> {password}</p>

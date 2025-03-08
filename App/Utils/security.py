@@ -31,10 +31,11 @@ except ImportError:
 
 
 class Security:
-    def __init__(self, secret_key: str, algorithm: str, token_expire_minutes: int = 60):
+    def __init__(self, secret_key: str, algorithm: str, token_expire_minutes: int = 60): #, length:int=8#):
         self.secret_key = secret_key
         self.algorithm = algorithm
         self.token_expire_minutes = token_expire_minutes
+        # self.length =length
         # Setup a TTL cache for decoded tokens if possible
         if TTLCache:
             self.token_cache = TTLCache(maxsize=1024, ttl=token_expire_minutes * 60)
@@ -62,11 +63,12 @@ class Security:
     
 
     # Secure Token Generation
-    def generate_random_string(length=12):
+    def generate_random_string(length:int):
+        
         characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()"
         return "".join(secrets.choice(characters) for _ in range(length))
     
-    def generate_random_char(length=12):
+    def generate_random_char(length:int):
         characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
         return "".join(secrets.choice(characters) for _ in range(length))
 

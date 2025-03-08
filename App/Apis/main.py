@@ -6,13 +6,20 @@ from uuid import UUID
 from typing import List, Optional
 from database.db_session import get_db  # Your database session dependency
 from Crud.crud import CRUDBase  # Generic CRUD class
+from Crud.branch import *
+from Crud.department import *
 from Models.Tenants.organization import *  # Import your models
 from Models.Tenants.role import Role  # Import your models
 from Models.models import ( User,  Employee, AcademicQualification,
                         ProfessionalQualification, EmploymentHistory,
                         EmergencyContact, NextOfKin, FileStorage, AuditLog,
-                        SystemSetting, Dashboard)  # Import your models
-from Schemas.schemas import (OrganizationCreateSchema, OrganizationSchema, RoleCreateSchema,
+                        SystemSetting, Dashboard, Department)  # Import your models
+from Schemas.schemas import (OrganizationCreateSchema, OrganizationSchema,
+                             BranchCreate, BranchOut, BranchUpdate,
+                             DepartmentCreate, DepartmentUpdate, DepartmentOut,
+
+                            
+                            RoleCreateSchema,
                          RoleSchema, UserCreateSchema, UserSchema, TenancyCreateSchema,
                          TenancySchema, TermsAndConditionsSchema, BillSchema,
                          PaymentSchema, EmployeeCreateSchema, EmployeeSchema,
@@ -89,25 +96,25 @@ async def create_organization_form(
     user_images: Optional[List[UploadFile]] = File(None),  # User profile images
     tenancies: Optional[str] = Form(json.dumps([
             {
-                # "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                # "start_date": "2025-01-01",
-                # "billing_cycle": "Monthly",
-                # "terms_and_conditions_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                # "terms_and_conditions": [
-                #     {
-                #         "title": "Default Terms",
-                #         "content": {"agreement": "Sample agreement text"},
-                #         "version": "1.0",
-                #         "is_active": True
-                #     }
-                # ]
+                "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "start_date": "2025-01-01",
+                "billing_cycle": "Monthly",
+                "terms_and_conditions_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "terms_and_conditions": [
+                    {
+                        "title": "Default Terms",
+                        "content": {"agreement": "Sample agreement text"},
+                        "version": "1.0",
+                        "is_active": True
+                    }
+                ]
             }
         ])),  # JSON string for tenancies
-    roles: Optional[str] = File(json.dumps([{}
-    #   "name": "Administrator",
-    #   "permissions": {"read": "all", "write": "all", "delete": "all"},
-    #   "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-    # },
+    roles: Optional[str] = File(json.dumps([{
+      "name": "Administrator",
+      "permissions": {"read": "all", "write": "all", "delete": "all"},
+      "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+    },
     # {
     #     "name": "HR", 
     #     "permissions": {"admin": False, "Deputy":True, "read": "all", "write": "all", "delete": "all"},
@@ -118,41 +125,41 @@ async def create_organization_form(
     #     "permissions": {"admin": False, "Deputy": False, "read": "all", "write": "null", "delete": "soft delete"},
     #     "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6" 
     #     },
-])),  # JSON string for roles
-employees: Optional[str] = Form(json.dumps([{
-    # "first_name": "",
-    # "middle_name":"",
-    # "last_name": "",
-    # "date_of_birth": "1980-01-01",
-    # "email": "vboat54@gmail.com",
-    # "contact_info": {},
-    # "hire_date": str(current_date),
-    # "termination_date": str(next_year),
-    # "custom_data": {},
-    # "profile_image_path": "google.com/sam",
-    # "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-}])),
+    ])),  # JSON string for roles
+    employees: Optional[str] = Form(json.dumps([{
+        "first_name": "",
+        "middle_name":"",
+        "last_name": "",
+        "date_of_birth": "1980-01-01",
+        "email": "vboat54@gmail.com",
+        "contact_info": {},
+        "hire_date": str(current_date),
+        "termination_date": str(next_year),
+        "custom_data": {},
+        "profile_image_path": "google.com/sam",
+        "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+    }])),
     users: Optional[str] = Form(json.dumps([
-            {
-                # "username": "",
-                # "email": "kduah54@gmail.com",   
-                # "hashed_password": "",
-                # "role_id": "123e4567-e89b-12d3-a456-426614174000",
-                # "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", 
-                # "image_path": "google.com/sam"
-                
-            }
+                {
+                    "username": "",
+                    "email": "kduah54@gmail.com",   
+                    "hashed_password": "",
+                    "role_id": "123e4567-e89b-12d3-a456-426614174000",
+                    "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", 
+                    "image_path": "google.com/sam"
+                    
+                }
 
-        ])),  # JSON string for users
+            ])),  # JSON string for users
     settings: Optional[str] = Form(json.dumps([{
-        # "setting_name": "dashboard_theme",
-        # "setting_value": {         "color": "blue",         "font_size": "12px"       } ,
-        # "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-    }])),  # JSON string for settings
+            "setting_name": "dashboard_theme",
+            "setting_value": {         "color": "blue",         "font_size": "12px"       } ,
+            "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        }])),  # JSON string for settings
     db: Session = Depends(get_db),
-    # email_smtp_config: dict = Depends(get_smtp_config),
+        # email_smtp_config: dict = Depends(get_smtp_config),
     config: DevelopmentConfig = Depends(get_config),  # Inject config
-):
+    ):
     
 
     try:
@@ -361,21 +368,31 @@ async def update_organization(
             logo_files = [{"filename": file.filename, "content": await file.read()} for file in logos]
             uploaded_logo_urls = gcs_client.upload_to_gcs(
                 files=logo_files,
-                folder=f"organizations/{org.name}/logos"
+                folder=f"organizations/{get_organization_acronym(org.name)}/logos"
             )
-            organization_data["logos"] = {
-                file.filename: url for file, url in zip(logos, uploaded_logo_urls)
-            }
+            # organization_data["logos"] = {
+            #     file.filename: url for file, url in zip(logos, uploaded_logo_urls)
+            # }
+            organization_data["logos"] =uploaded_logo_urls
         else:
             # Maintain existing data if logos are not provided
             organization_data.pop("logos", None)
+        
+
+        # logo_urls={}
+        # # Process uploaded files for logos
+        # if logos:
+        #     logo_files = [{"filename": file.filename, "content": await file.read()} for file in logos]
+          
+        #     logo_urls = gcs_client.upload_to_gcs(files=logo_files, folder=f"organizations/{get_organization_acronym(name)}/logos") or {}
+          
 
         # Process uploaded user images if provided
         if user_images:
             user_files = [{"filename": file.filename, "content": await file.read()} for file in user_images]
             uploaded_image_urls = gcs_client.upload_to_gcs(
                 files=user_files,
-                folder=f"organizations/{org.name}/user_profiles"
+                folder=f"organizations/{get_organization_acronym(org.name)}/user_profiles"
             )
             uploaded_image_urls_list = list(uploaded_image_urls.values())
             for i, user in enumerate(organization_data.get("users", [])):
@@ -429,6 +446,38 @@ def delete_record(
 
 
 
+#Branches
+@app.post("/{org_id}/branches", response_model=BranchOut)
+def create_organization_branch(org_id: uuid.UUID, branch_in: BranchCreate, db: Session = Depends(get_db)):
+    branch = create_branch(db, branch_in, organization_id=org_id)
+    return branch
+
+@app.get("/{org_id}/branches", response_model=list[BranchOut])
+def list_organization_branches(org_id: uuid.UUID, db: Session = Depends(get_db), skip: int = 0, limit: int = 10):
+    return get_branches(db, organization_id=org_id, skip=skip, limit=limit)
+
+@app.get("/{org_id}/branches/{branch_id}", response_model=BranchOut)
+def get_branch_endpoint(org_id: uuid.UUID, branch_id: uuid.UUID, db: Session = Depends(get_db)):
+    branch = get_branch(db, branch_id)
+    if not branch or branch.organization_id != org_id:
+        raise HTTPException(status_code=404, detail="Branch not found")
+    return branch
+
+@app.patch("/{org_id}/branches/{branch_id}", response_model=BranchOut)
+def update_branch_endpoint(org_id: uuid.UUID, branch_id: uuid.UUID, branch_in: BranchUpdate, db: Session = Depends(get_db)):
+    branch = get_branch(db, branch_id)
+    if not branch or branch.organization_id != org_id:
+        raise HTTPException(status_code=404, detail="Branch not found")
+    data = update_branch(db, branch, branch_in)
+    return data
+
+@app.delete("/{org_id}/branches/{branch_id}")
+def delete_branch_endpoint(org_id: uuid.UUID, branch_id: uuid.UUID, db: Session = Depends(get_db)):
+    branch = get_branch(db, branch_id)
+    if not branch or branch.organization_id != org_id:
+        raise HTTPException(status_code=404, detail="Branch not found")
+    delete_branch(db, branch)
+    return {"detail": "Branch deleted successfully"}
 
 
 

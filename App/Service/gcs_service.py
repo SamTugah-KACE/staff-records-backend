@@ -114,6 +114,8 @@ class GoogleCloudStorage:
             if self.public_urls == {}:
                 self.public_urls = ""
         
+        print("\n\npublic_urls:: ", self.public_urls)
+        
         return self.public_urls
     
 

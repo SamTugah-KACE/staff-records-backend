@@ -17,17 +17,25 @@ from .default import app as bank
 from .user_api import router as user
 from .apis import router as mix
 from .auth import router as auth
+from .promotions import router as promo
+from .tenant_apis import router as tenant
 # from notification.socket import router as notif
 
 api =APIRouter()
 
 # Include Routers
 api.include_router(uploadfile, prefix="/api/uploadfile", tags=["UploadFile"])
-api.include_router(organization, prefix="/api/organizations", tags=["Organizations"])
-api.include_router(mix, prefix="/api")
-api.include_router(user, prefix="/api/users", tags=["User Management"])
 api.include_router(bank, prefix="/api/default", tags=["Defaults"])
 api.include_router(auth, prefix="/api/auth", tags=["Auth"])
+api.include_router(user, prefix="/api/users", tags=["User Management"])
+api.include_router(mix, prefix="/api")
+api.include_router(organization, prefix="/api/organizations", tags=["Organizations"])
+api.include_router(promo, prefix="/api/promotions", tags=["Organizational Promotions"])
+api.include_router(tenant, prefix="/api")
+
+
+
+
 # api.include_router(notif, prefix="/api/notification", tags=["Notifications"])
 
 

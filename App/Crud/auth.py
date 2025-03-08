@@ -16,7 +16,7 @@ from Utils.config import DevelopmentConfig
 from email_validator import EmailNotValidError
 from typing import List
 
-from Schemas.schemas import UserSchema
+from Schemas.schemas import UserSchema, EmployeeSchema
 
 settings = DevelopmentConfig()
 
@@ -172,11 +172,13 @@ async def authenticate_user(
     ).first()
 
     name = None
+    empID = None
     employee = db.query(Employee).filter(Employee.email == user.email, Employee.organization_id == user.organization_id).first()
     if not employee:
         name = None
     else:
         name = employee.title + " "+ employee.first_name
+        empID = employee.id
 
     if existing_token:
         
@@ -259,13 +261,16 @@ async def authenticate_user(
 
     # Instead of returning the raw 'user' object, convert it using your schema:
     user_serialized = UserSchema.model_validate(user)
+    staff_serialized = EmployeeSchema.model_validate(employee) if employee else None
 
     # 11. Return response.
     return {
         "name": name if name else "",
+        "staff_id": empID if empID else "",
         "image_path": user.image_path,
         "username": user.username,
         "user":user_serialized,
+        "staff":staff_serialized,
         "email": user.email,
         "token": token_str,
         "token_expiration": token_expiration,

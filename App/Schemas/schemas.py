@@ -1,7 +1,8 @@
 
+from decimal import Decimal
 import json
 from pydantic import BaseModel, EmailStr, Field, field_validator, root_validator, model_validator
-from typing import Optional, List, Dict, Union
+from typing import Any, Optional, List, Dict, Union
 from uuid import UUID
 from datetime import datetime, date
 from enum import Enum
@@ -129,6 +130,64 @@ class RoleSchema(BaseSchema):
     class Config:
         from_attributes = True
 
+
+#Branch Schema
+class BranchBase(BaseModel):
+    name: str
+    location: str
+    manager_id: Optional[UUID] = None
+
+class BranchCreate(BranchBase):
+    pass
+
+class BranchUpdate(BaseModel):
+    name: Optional[str] = None
+    location: Optional[str] = None
+    manager_id: Optional[UUID] = None
+
+class BranchOut(BranchBase):
+    id: UUID
+    organization_id: UUID
+    # created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+
+
+
+#Departments
+class DepartmentBase(BaseModel):
+    name: str
+    department_head_id: Optional[UUID] = None
+    branch_id: Optional[UUID] = None
+
+class DepartmentCreate(DepartmentBase):
+    organization_id: UUID
+
+class DepartmentUpdate(BaseModel):
+    name: Optional[str] = None
+    department_head_id: Optional[UUID] = None
+    branch_id: Optional[UUID] = None
+
+class DepartmentOut(DepartmentBase):
+    id: UUID
+    organization_id: UUID
+
+    class Config:
+        from_attributes = True
+
+
+
+
+
+
+
+
+
+
+
 # User Schemas
 class UserCreateSchema(BaseModel):
     username: Optional[str]
@@ -251,6 +310,10 @@ class EmployeeCreateSchema(BaseModel):
     custom_data: Optional[Dict]
     profile_image_path: Optional[str]
     organization_id: UUID
+    rank_id: Optional[UUID]
+    department_id: Optional[UUID]
+    last_promotion_date:Optional[date]
+    employee_type_id:Optional[UUID]
 
 
     @model_validator(mode="before")
@@ -271,13 +334,33 @@ class EmployeeSchema(BaseSchema):
     date_of_birth: Optional[date]
     marital_status: Optional[str] = MaritalStatus.other.value
     email: EmailStr
-    contact_info: Optional[Dict]
+    # contact_info: Optional[Dict]
+    contact_info: Optional[Dict[str, Any]] = Field(default_factory=dict)
     hire_date: Optional[date]
     termination_date: Optional[date]
     is_active: Optional[bool]
-    custom_data: Optional[Dict]
+    # custom_data: Optional[Dict]
+    custom_data: Optional[Dict[str, Any]] = Field(default_factory=dict)
     profile_image_path: Optional[str]
     organization_id: UUID
+    rank_id: Optional[UUID]
+    department_id: Optional[UUID]
+    last_promotion_date:Optional[date]
+    employee_type_id:Optional[UUID]
+
+    # Validator for contact_info: if the incoming value is the string "{}" convert it to {}
+    @field_validator("contact_info", mode="before")
+    def validate_contact_info(cls, v):
+        if isinstance(v, str) and v.strip() == "{}":
+            return {}
+        return v
+
+    # Validator for custom_data: if the incoming value is the string "{}" convert it to {}
+    @field_validator("custom_data", mode="before")
+    def validate_custom_data(cls, v):
+        if isinstance(v, str) and v.strip() == "{}":
+            return {}
+        return v
 
 
     class Config:
@@ -530,3 +613,210 @@ class OrganizationDetailSchema(OrganizationSchema):
     users: List[UserSchema] = []
     roles: List[RoleSchema] = []
     settings: List[SystemSettingSchema] = []
+
+
+
+# -------------------------------
+# Rank Schemas
+# -------------------------------
+class RankBase(BaseModel):
+    name: str = Field(..., description="Name of the rank (e.g., 'Junior Developer')")
+    min_salary: Decimal = Field(..., description="Minimum salary for this rank")
+    max_salary: Optional[Decimal] = Field(None, description="Optional maximum salary")
+    currency: str = Field("GHS", description="Currency code (e.g., GHS, USD)")
+    conversion_info: Optional[Dict[str, Any]] = Field(None, description="Additional currency conversion details")
+
+class RankCreate(RankBase):
+    organization_id: UUID = Field(..., description="Organization identifier")
+
+class RankUpdate(BaseModel):
+    name: Optional[str] = None
+    min_salary: Optional[Decimal] = None
+    max_salary: Optional[Decimal] = None
+    currency: Optional[str] = None
+    conversion_info: Optional[Dict[str, Any]] = None
+
+class RankOut(RankBase):
+    id: UUID
+    organization_id: UUID
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+# -------------------------------
+# PromotionPolicy Schemas
+# -------------------------------
+class PromotionPolicyBase(BaseModel):
+    policy_name: str = Field(..., description="Name of the promotion policy")
+    criteria: Dict[str, Any] = Field(..., description="JSON criteria for promotions")
+    supporting_document_template: Optional[str] = Field(None, description="URL/reference for a supporting document template")
+    is_active: bool = Field(True, description="Whether the policy is active")
+
+class PromotionPolicyCreate(PromotionPolicyBase):
+    organization_id: UUID = Field(..., description="Organization identifier")
+
+class PromotionPolicyUpdate(BaseModel):
+    policy_name: Optional[str] = None
+    criteria: Optional[Dict[str, Any]] = None
+    supporting_document_template: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class PromotionPolicyOut(PromotionPolicyBase):
+    id: UUID
+    organization_id: UUID
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+# -------------------------------
+# PaymentGatewayConfig Schemas
+# -------------------------------
+class PaymentGatewayConfigBase(BaseModel):
+    provider_name: str = Field(..., description="Payment provider name")
+    api_key: str = Field(..., description="API key")
+    api_url: str = Field(..., description="API endpoint URL")
+    additional_config: Optional[Dict[str, Any]] = Field(None, description="Any additional configuration details")
+
+class PaymentGatewayConfigCreate(PaymentGatewayConfigBase):
+    organization_id: UUID = Field(..., description="Organization identifier")
+
+class PaymentGatewayConfigUpdate(BaseModel):
+    provider_name: Optional[str] = None
+    api_key: Optional[str] = None
+    api_url: Optional[str] = None
+    additional_config: Optional[Dict[str, Any]] = None
+
+class PaymentGatewayConfigOut(PaymentGatewayConfigBase):
+    id: UUID
+    organization_id: UUID
+
+    class Config:
+        from_attributes = True
+
+# -------------------------------
+# Notification Schemas
+# -------------------------------
+class NotificationBase(BaseModel):
+    type: str = Field(..., description="Notification type (e.g., 'promotion_due', 'birthday')")
+    message: str = Field(..., description="Notification message")
+    is_read: bool = Field(False, description="Read status")
+
+class NotificationCreate(NotificationBase):
+    organization_id: UUID = Field(..., description="Organization identifier")
+    user_id: Optional[UUID] = Field(None, description="Optional target user ID")
+    employee_id: Optional[UUID] = Field(None, description="Optional employee ID for individual notifications")
+
+class NotificationUpdate(BaseModel):
+    type: Optional[str] = None
+    message: Optional[str] = None
+    is_read: Optional[bool] = None
+    user_id: Optional[UUID] = None
+    employee_id: Optional[UUID] = None
+
+class NotificationOut(NotificationBase):
+    id: UUID
+    organization_id: UUID
+    user_id: Optional[UUID]
+    employee_id: Optional[UUID]
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+# -------------------------------
+# PromotionRequest Schemas
+# -------------------------------
+class PromotionRequestBase(BaseModel):
+    employee_id: UUID = Field(..., description="Employee submitting the request")
+    current_rank_id: Optional[UUID] = Field(None, description="Current rank of the employee")
+    proposed_rank_id: Optional[UUID] = Field(None, description="Proposed new rank")
+    promotion_effective_date: Optional[datetime] = Field(None, description="Effective date of the promotion")
+    evidence_documents: Optional[List[str]] = Field(None, description="List of URLs for supporting evidence documents")
+    comments: Optional[str] = Field(None, description="Comments regarding the promotion request")
+    department_approved: bool = Field(False, description="Department head approval status")
+    hr_approved: bool = Field(False, description="HR approval status")
+
+class PromotionRequestCreate(PromotionRequestBase):
+    pass
+
+class PromotionRequestUpdate(BaseModel):
+    proposed_rank_id: Optional[UUID] = None
+    promotion_effective_date: Optional[datetime] = None
+    evidence_documents: Optional[List[str]] = None
+    comments: Optional[str] = None
+    department_approved: Optional[bool] = None
+    department_approval_date: Optional[datetime] = None
+    hr_approved: Optional[bool] = None
+    hr_approval_date: Optional[datetime] = None
+
+class PromotionRequestOut(PromotionRequestBase):
+    id: UUID
+    request_date: datetime
+    department_approval_date: Optional[datetime] = None
+    hr_approval_date: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+# -------------------------------
+# EmployeePaymentDetail Schemas
+# -------------------------------
+class EmployeePaymentDetailBase(BaseModel):
+    employee_id: UUID = Field(..., description="Employee identifier")
+    payment_mode: str = Field(..., description="Payment mode (e.g., 'Bank Transfer', 'MTN MOMO')")
+    bank_name: Optional[str] = Field(None, description="Bank name (if applicable)")
+    account_number: Optional[str] = Field(None, description="Account number (if applicable)")
+    mobile_money_provider: Optional[str] = Field(None, description="Mobile money provider (if applicable)")
+    wallet_number: Optional[str] = Field(None, description="Wallet number (if applicable)")
+    additional_info: Optional[Dict[str, Any]] = Field(None, description="Any extra details")
+    is_verified: bool = Field(False, description="Verification status")
+
+class EmployeePaymentDetailCreate(EmployeePaymentDetailBase):
+    pass
+
+class EmployeePaymentDetailUpdate(BaseModel):
+    payment_mode: Optional[str] = None
+    bank_name: Optional[str] = None
+    account_number: Optional[str] = None
+    mobile_money_provider: Optional[str] = None
+    wallet_number: Optional[str] = None
+    additional_info: Optional[Dict[str, Any]] = None
+    is_verified: Optional[bool] = None
+
+class EmployeePaymentDetailOut(EmployeePaymentDetailBase):
+    id: UUID
+
+    class Config:
+        from_attributes = True
+
+# -------------------------------
+# SalaryPayment Schemas
+# -------------------------------
+class SalaryPaymentBase(BaseModel):
+    employee_id: UUID = Field(..., description="Employee identifier")
+    rank_id: Optional[UUID] = Field(None, description="Associated rank identifier")
+    amount: Decimal = Field(..., description="Salary amount")
+    currency: str = Field("USD", description="Currency code")
+    payment_method: str = Field(..., description="Method of payment (e.g., 'Bank Transfer')")
+    transaction_id: str = Field(..., description="Unique transaction identifier")
+    status: str = Field("Success", description="Payment status (e.g., 'Success', 'Failed')")
+
+class SalaryPaymentCreate(SalaryPaymentBase):
+    pass
+
+class SalaryPaymentUpdate(BaseModel):
+    rank_id: Optional[UUID] = None
+    amount: Optional[Decimal] = None
+    currency: Optional[str] = None
+    payment_method: Optional[str] = None
+    transaction_id: Optional[str] = None
+    status: Optional[str] = None
+
+class SalaryPaymentOut(SalaryPaymentBase):
+    id: UUID
+    payment_date: datetime
+
+    class Config:
+        from_attributes = True

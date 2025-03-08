@@ -33,6 +33,12 @@ class Organization(BaseModel):
     settings = relationship("SystemSetting", back_populates="organization", cascade="all, delete")
     dashboards = relationship("Dashboard", back_populates="organization", cascade="all, delete")
     employees = relationship("Employee", back_populates="organization", cascade="all, delete-orphan")
+    branches = relationship("Branch", back_populates="organization", cascade="all, delete")
+    departments = relationship("Department", back_populates="organization", cascade="all, delete")
+    ranks = relationship("Rank", back_populates="organization", cascade="all, delete")
+    employee_types = relationship("EmployeeType", back_populates="organization")
+    promotion_policies = relationship("PromotionPolicy", back_populates="organization")
+    
 
    
     # Method to enforce active organization
@@ -54,6 +60,61 @@ class Organization(BaseModel):
             raise HTTPException(status_code=404, detail="Organization not found.")
         organization.is_active = new_status
         db.commit()
+
+
+
+#Branches
+class Branch(BaseModel):
+    __tablename__ = "branches"
+    
+    name = Column(String, nullable=False)
+    location = Column(String, nullable=False)
+    # manager_id points to an Employee (staff) rather than a user.
+    manager_id = Column(SQLUUID(as_uuid=True), ForeignKey("employees.id", ondelete="SET NULL"), nullable=True)
+    organization_id = Column(SQLUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)
+    
+
+    organization = relationship("Organization", back_populates="branches")
+    manager = relationship("Employee", foreign_keys=[manager_id])
+    departments = relationship("Department", back_populates="branch", cascade="all, delete")
+
+
+###############################
+# 1. Rank & Salary Definitions
+###############################
+
+class Rank(BaseModel):
+    __tablename__ = "ranks"
+
+    organization_id = Column(SQLUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String, nullable=False)  # e.g., "Junior Developer", "Manager"
+    min_salary = Column(DECIMAL(precision=10, scale=2), nullable=False)
+    max_salary = Column(DECIMAL(precision=10, scale=2), nullable=True)  # Optional maximum
+    currency = Column(String, nullable=False, default="GHS")  # Base currency for this rank
+    # Optionally store conversion or extra info in a JSON field (could be refreshed via an external API)
+    conversion_info = Column(JSONB, nullable=True)
+
+    # Relationships
+    organization = relationship("Organization", back_populates="ranks")
+    employees = relationship("Employee", back_populates="rank")
+
+# ---------------------------
+# Promotion Policy & Record
+# ---------------------------
+class PromotionPolicy(BaseModel):
+    __tablename__ = "promotion_policies"
+    # A policy might be defined at the organization level.
+    organization_id = Column(SQLUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    policy_name = Column(String, nullable=False)
+    # period_years = Column(String, nullable=False)  # e.g., "4" (years)
+    # JSON field to store criteria rules (e.g., {"min_years_of_service": 3, "min_performance_rating": 4.5})
+    criteria = Column(JSONB, nullable=False)  # e.g., performance metrics, minimum tenure, etc. 
+    supporting_document_template = Column(String, nullable=True)  # URL or file reference for a template document
+    is_active = Column(Boolean, default=True)
+    
+    organization = relationship("Organization", back_populates="promotion_policies")
+
+
 
 class Tenancy(BaseModel):
     __tablename__ = "tenancies"

@@ -12,6 +12,7 @@ from Apis.routers import api
 from database.db_session import temp_db, SessionLocal
 from sqlalchemy.orm import Session
 from notification.socket import manager
+from Utils.daily_checks import schedule_daily_checks
 
 
 # Initialize FastAPI app
@@ -147,6 +148,9 @@ async def on_startup():
             create_default_roles(db=db)
         finally:
             db.close()
+        
+        # Start the APScheduler job for daily checks.
+        schedule_daily_checks()
 
         print("Application startup tasks completed.")
 

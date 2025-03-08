@@ -37,10 +37,12 @@ def create_default_roles(db: Session):
     ]
 
     try:
+        print("\n\ndb:: ", db)
+        print("\n\nDatabank:: ", DataBank)
         with db.begin():  # Begin a transaction
             # Fetch or create the databank entry for roles
             databank_entry = db.query(DataBank).filter(DataBank.data_name == "roles").first()
-
+            print("databank_entry:: ", databank_entry)
             if not databank_entry:
                 # If no existing entry, create a new one
                 databank_entry = DataBank(data_name="roles", data=roles)

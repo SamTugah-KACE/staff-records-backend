@@ -5,6 +5,7 @@ from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 from pydantic import EmailStr
 from jinja2 import Template
 from typing import List, Optional
+from Utils.util import get_organization_acronym
 from Utils.email_utils import parse_html_from_template
 from Utils.config import *
 import string
@@ -45,17 +46,17 @@ class EmailService:
         print("\nGenerated Password: ", ''.join(random.choice(characters) for _ in range(length)))
         return ''.join(random.choice(characters) for _ in range(length))
     
-    # Define the email template
-    def get_email_template( username: str, password: str, href: str, organization:str=None) -> str:
-        if organization is None:
-            organization = "GI-KACE"
-        return f"""
-        <h2>{organization} Staff Records System</h2>
-        <p>Your account has been created successfully. Below are your login credentials:</p>
-        <p><strong>Username:</strong> {username}</p>
-        <p><strong>Password:</strong> {password}</p>
-        <p>Please change your password after logging in for the first time using the link: <a href='{href}'>Login</a></p>
-        """
+    # # Define the email template
+    # def get_email_template( username: str, password: str, href: str, organization:str=None) -> str:
+    #     if organization is None:
+    #         organization = "GI-KACE"
+    #     return f"""
+    #     <h2>{organization} Staff Records System</h2>
+    #     <p>Your account has been created successfully. Below are your login credentials:</p>
+    #     <p><strong>Username:</strong> {username}</p>
+    #     <p><strong>Password:</strong> {password}</p>
+    #     <p>Please change your password after logging in for the first time using the link: <a href='{href}'>Login</a></p>
+    #     """
 
     def account_emergency() -> str:
         return """
@@ -121,12 +122,19 @@ class EmailService:
         await self.send_email(background_tasks, recipients, subject, template_name=template_name, template_data=template_data)
 
     # Define the email template
-def get_email_template(username: str, password: str, href: str, organization: str = None) -> str:
-    if organization is None:
-        organization = "GI-KACE"
+# Define the email template
+def get_email_template(username: str, password: str, href: str, org_name:str=None) -> str:
+    print("\n\norg_name in email_template:: ", org_name)
+    name = None
+    if org_name is None:
+        name = "GI-KACE"
+    else:
+        name = get_organization_acronym(org_name)
         
+
+    print("\nname:: ", name)
     return f"""
-    <h2>{organization} Staff Records System</h2>
+    <h2>{name} Staff Records System</h2>
     <p>Your account has been created successfully. Below are your login credentials:</p>
     <p><strong>Username:</strong> {username}</p>
     <p><strong>Password:</strong> {password}</p>

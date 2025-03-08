@@ -441,8 +441,8 @@ class UserCRUD:
 
 
             # Step 5: **Generate Credentials**
-            user_name =  f"{employee_data.get('first_name').lower()}{employee_data.get('last_name').lower()}{ global_security.generate_random_string(4)}" or  global_security.generate_random_string(6)
-            password =  global_security.generate_random_char(6)
+            user_name =  f"{employee_data.get('first_name').lower()}{employee_data.get('last_name').lower()}{ Security.generate_random_string(4)}" or  Security.generate_random_string(6)
+            password =  Security.generate_random_char(6)
             hashed_password = self.hash_password(password)
 
             

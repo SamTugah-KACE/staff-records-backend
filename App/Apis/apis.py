@@ -22,6 +22,7 @@ from Models.models import (
 )
 from Schemas.schemas import (
     OrganizationCreateSchema, OrganizationSchema,
+    DepartmentCreate, DepartmentOut, DepartmentUpdate,
     RoleCreateSchema, RoleSchema,
     UserCreateSchema, UserSchema,
     EmployeeCreateSchema, EmployeeSchema,
@@ -31,6 +32,7 @@ from Schemas.schemas import (
     FileStorageSchema, 
 )
 from Crud.base import CRUDBase
+from Crud.department import *
 from Crud.async_base import CRUDBase as AsyncCRUDBase
 from Utils.config import DevelopmentConfig
 
@@ -57,6 +59,66 @@ employment_history_crud = CRUDBase(EmploymentHistory, AuditLog)
 emergency_contact_crud = CRUDBase(EmergencyContact, AuditLog)
 next_of_kin_crud = CRUDBase(NextOfKin, AuditLog)
 file_storage_crud = CRUDBase(FileStorage, AuditLog)
+
+
+
+
+#Department endpoints
+@router.post("/organizations/{org_id}/departments", response_model=DepartmentOut,  tags=["Organizational Departments"])
+def create_department_endpoint(org_id: uuid.UUID, dept_in: DepartmentCreate, db: Session = Depends(get_db)):
+    """
+    Create a new department for the given organization.
+    """
+    department = create_department(db, dept_in, organization_id=org_id)
+    return department
+
+@router.get("/organizations/{org_id}/departments", response_model=list[DepartmentOut],  tags=["Organizational Departments"])
+def list_departments_endpoint(org_id: uuid.UUID, db: Session = Depends(get_db), skip: int = 0,
+    limit: int = 10):
+    """
+    List all departments for a given organization.
+    """
+    departments = get_departments(db, organization_id=org_id, skip=skip, limit=limit)
+    return departments
+
+@router.get("/organizations/{org_id}/departments/{dept_id}", response_model=DepartmentOut,  tags=["Organizational Departments"])
+def get_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, db: Session = Depends(get_db)):
+    """
+    Retrieve a single department by its ID for the given organization.
+    """
+    department = get_department(db, dept_id)
+    if not department or department.organization_id != org_id:
+        raise HTTPException(status_code=404, detail="Department not found")
+    return department
+
+@router.patch("/organizations/{org_id}/departments/{dept_id}", response_model=DepartmentOut,  tags=["Organizational Departments"])
+def update_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, dept_in: DepartmentUpdate, db: Session = Depends(get_db)):
+    """
+    Update an existing department for the given organization.
+    """
+    department = get_department(db, dept_id)
+    if not department or department.organization_id != org_id:
+        raise HTTPException(status_code=404, detail="Department not found")
+    updated_department = update_department(db, department, dept_in)
+    return updated_department
+
+@router.delete("/organizations/{org_id}/departments/{dept_id}",  tags=["Organizational Departments"])
+def delete_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, db: Session = Depends(get_db)):
+    """
+    Delete a department from the given organization.
+    """
+    department = get_department(db, dept_id)
+    if not department or department.organization_id != org_id:
+        raise HTTPException(status_code=404, detail="Department not found")
+    delete_department(db, department)
+    return {"detail": "Department deleted successfully"}
+
+
+
+
+
+
+
 
 
 
@@ -279,7 +341,7 @@ async def list_staff(
         return [EmployeeSchema.from_orm(employee) for employee in result]
 
 
-@router.patch("/staff/{staff_id}", tags=["Employees"], response_model=EmployeeSchema)
+@router.patch("/staff/{staff_id}", tags=["Employee Management"], response_model=EmployeeSchema)
 async def update_employee(
     staff_id: UUID,
     # organization_id: UUID = Form(..., description="Organization ID for multi-tenancy"),

@@ -94,7 +94,8 @@ from Models.models import User
 
 # Utility for Schema Migration or Testing
 def temp_db():
-    """Creates temporary SQLite database for testing or development purposes."""
+    """Creates temporary PostgreSQL database for testing or development purposes."""
+    # Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     print("PostgreSQL database Tables created.")
 

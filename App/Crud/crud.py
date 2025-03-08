@@ -52,7 +52,7 @@ CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)  # Pydantic crea
 # pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 # Constants for Random Username and Password Generation
-CHARACTER_SET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+CHARACTER_SET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345679"
 USERNAME_LENGTH = 8
 PASSWORD_LENGTH = 12
 
@@ -246,10 +246,10 @@ class CRUDBase:
         # Generate dynamic organization URL
         # obj_data["access_url"] = f"https://{obj_data['name'].lower().replace(' ', '-')}.myapp.com"
         
-        # slug = f"{obj_data['name'].lower().replace(' ', '-')}-{Security.generate_random_char(8)}"
+        # slug = f"{obj_data['name'].lower().replace(' ', '-')}-{Security.generate_random_char()}"
         ab = get_organization_acronym(obj_data['name']).lower()
         print("\n\nabbr.: ", ab)
-        slug = f"{ab}-{global_security.generate_random_char(8)}"
+        slug = f"{ab}-{Security.generate_random_char(8)}"
         obj_data["access_url"] = f"https://gi-kace-solutions.onrender.com/{slug}"
 
 
@@ -356,7 +356,7 @@ class CRUDBase:
                     # Generate email, username and password if not provided
                     # user_data["email"] = user_data.get("email") if user_data.get("email").strip() else employee_data["email"]
                     user_data["email"] = employee_data["email"].strip()
-                    # username = user_data.get("username", "").strip() or generate_random_string(8)
+                    # username = user_data.get("username", "").strip() or generate_random_string()
                     username = employee_data["email"].strip() or  employee_data["first_name"].strip() + "-" + generate_random_string(4)
                     password = user_data.get("hashed_password", "").strip() or  generate_random_string(12)
                     hashed_password = self.hash_password(password)
@@ -409,7 +409,7 @@ class CRUDBase:
 
                    # Call External API for Facial Authentication Username Update
                     # if user_data["image_path"]:
-                    #     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=180)) as session:
+                    #     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
                     #         form = aiohttp.FormData()
                     #         form.add_field("new_username", username)
                     #         form.add_field("file", user_data["image_path"], filename="image.jpg", content_type="image/jpeg")

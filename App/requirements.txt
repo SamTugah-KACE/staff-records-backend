@@ -31,3 +31,8 @@ boto3
 aiohttp
 pandas
 email_validator
+apscheduler
+redis
+celery
+# apscheduler-redis
+# git+https://github.com/agronholm/apscheduler_redis_jobstore.git#egg=apscheduler_redis_jobstore
