@@ -41,7 +41,7 @@ class BaseConfig(BaseSettings):
     # SMTP_PORT: int = Field(587, env="SMTP_PORT", description="SMTP port.")
     
     MAIL_USERNAME: str =Field("dev.aiti.com.gh@gmail.com", env="MAIL_USERNAME")
-    MAIL_PASSWORD: str =Field("palvpbokbnisspps", env="MAIL_PASSWORD")
+    MAIL_PASSWORD: str =Field("", env="MAIL_PASSWORD")
     MAIL_FROM: str =Field("dev.aiti.com.gh@gmail.com", env="MAIL_FROM", )
     MAIL_PORT: int =Field(587, env="MAIL_PORT")
     MAIL_SERVER: str =Field("smtp.gmail.com",env="MAIL_SERVER")
