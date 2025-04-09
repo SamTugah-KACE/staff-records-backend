@@ -9,6 +9,7 @@ from Crud.crud_dashboard import (
     update_dashboard,
     get_dashboards_by_org,
     get_dashboard_by_id,
+    compileDynamicSubmitCode,
 )
 from Schemas.schemas import DashboardCreateSchema, DashboardSchema
 from Crud.auth import get_db, require_permissions  # RBAC dependency from earlier
@@ -19,7 +20,7 @@ router = APIRouter(prefix="/dashboards", tags=["Dashboards"])
 async def create_dashboard_endpoint(
     dashboard_in: DashboardCreateSchema,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_permissions(["role:manage_dashboard"]))
+    current_user: dict = Depends(require_permissions(["employee:create:dashboard"]))
 ):
     """
     Create a new dashboard entry.
@@ -27,6 +28,13 @@ async def create_dashboard_endpoint(
     Only users with permission `role:manage_dashboard` (or an equivalent) can create a dashboard.
     """
     try:
+        form_design = dashboard_in.dashboard_data  # Expecting a dict with "fields"
+        form_fields = form_design.get("fields", [])
+        # Obtain the API URL from configuration or prefetch logic:
+        api_url = f"https://staff-records-backend.onrender.com/api/organizations/create-url"
+        compiledCode = compileDynamicSubmitCode(form_fields, api_url)
+        form_design["submitCode"] = compiledCode
+        dashboard_in.dashboard_data = form_design
         new_dashboard = create_dashboard(db, dashboard_in)
         return new_dashboard
     except Exception as e:
@@ -40,7 +48,7 @@ async def update_dashboard_endpoint(
     dashboard_id: UUID = Path(..., description="ID of the dashboard to update"),
     updated_data: dict = None,  # Can also create a dedicated update schema for validations
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_permissions(["role:manage_dashboard"]))
+    current_user: dict = Depends(require_permissions(["employee:update:dashboard"]))
 ):
     """
     Update an existing dashboard.
@@ -48,6 +56,7 @@ async def update_dashboard_endpoint(
     Only users with appropriate permissions can update dashboard settings.
     """
     try:
+        
         updated_dashboard = update_dashboard(db, dashboard_id, updated_data)
         return updated_dashboard
     except ValueError as ve:
@@ -68,6 +77,7 @@ async def list_dashboards(
     Retrieve all dashboards for a specific organization.
     """
     try:
+        
         dashboards = get_dashboards_by_org(db, organization_id)
         return dashboards
     except Exception as e:
@@ -80,12 +90,13 @@ async def list_dashboards(
 async def get_dashboard_endpoint(
     dashboard_id: UUID,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_permissions(["dashboard:view"]))
+    current_user: dict = Depends(require_permissions(["employee:read:dashboard"]))
 ):
     """
     Retrieve a dashboard by ID.
     """
     try:
+        
         dashboard = get_dashboard_by_id(db, dashboard_id)
         return dashboard
     except ValueError as ve:

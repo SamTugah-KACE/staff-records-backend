@@ -5,6 +5,16 @@ from typing import Optional, Set
 import pandas as pd
 import math
 
+from fastapi import Request
+
+def get_create_user_url(request: Request) -> str:
+    """
+    Returns the backend host URL with `/api/users/create` appended.
+    Example: if the base URL is http://example.com/, returns http://example.com/api/users/create.
+    """
+    base_url = str(request.base_url).rstrip("/")
+    return f"{base_url}/api/users/create"
+
 def sanitize_row_data(row_data: dict) -> dict:
     """
     Recursively replace any NaN values in the dictionary with None.

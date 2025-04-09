@@ -149,6 +149,9 @@ class BaseConfig(BaseSettings):
         "name": "HR Manager",
         "permissions": [
             "employee:create",
+            "employee:create:dashboard",
+            "employee:read:dashboard",
+            "employee:update:dashboard",
             "employee:read",
             "employee:update",
             "employee:delete",
@@ -187,7 +190,6 @@ class BaseConfig(BaseSettings):
         "name": "Employee",
         "permissions": [
             "employee:read",
-            "hr:dashboard",
             "staff:dashboard",
         ],
     },

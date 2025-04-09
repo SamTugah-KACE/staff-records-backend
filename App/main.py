@@ -2,18 +2,24 @@ import asyncio
 import datetime
 import json
 from typing import Dict, List
-from fastapi import FastAPI, Depends, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from Apis.default import create_default
 from Apis.routers import api
-from database.db_session import temp_db, SessionLocal
+from Models.models import Dashboard
+from database.db_session import get_db, temp_db, SessionLocal
 from sqlalchemy.orm import Session
 from notification.socket import manager
 from Utils.daily_checks import schedule_daily_checks
+import logging
 
+
+logger = logging.getLogger(__name__)
+# logger = logging.getLogger("uvicorn.error")
+# logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -72,6 +78,38 @@ async def websocket_notifications(websocket: WebSocket, organization_id: str, us
 # In-memory storage for pending chat messages.
 pending_messages: Dict[str, List[Dict]] = {}
 
+
+@app.websocket("/ws/form-design/{organization_id}/{user_id}")
+async def websocket_form_design(
+    websocket: WebSocket, 
+    organization_id: str, 
+    user_id: str, 
+    db: Session = Depends(get_db)
+):
+    """
+    WebSocket endpoint that sends the saved form design for the organization.
+    The design includes the field definitions and a precompiled submit function.
+    """
+    await websocket.accept()
+    try:
+        # Retrieve the dashboard entry (assumes one design per organization for this scenario)
+        dashboard = db.query(Dashboard).filter(
+            Dashboard.organization_id == organization_id,
+            Dashboard.user_id == user_id
+        ).first()
+        if dashboard and dashboard.dashboard_data:
+            payload = {"formDesign": dashboard.dashboard_data}
+        else:
+            payload = {"formDesign": None}
+        await websocket.send_text(json.dumps(payload))
+        # Optionally keep connection alive for live updates.
+        while True:
+            await asyncio.sleep(60)
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for org {organization_id}, user {user_id}")
+    except Exception as exc:
+        logger.error(f"Error in websocket_form_design: {exc}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.websocket("/ws/chat/{organization_id}/{user_id}")

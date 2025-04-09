@@ -258,8 +258,9 @@ class CRUDBase:
         ab = get_organization_acronym(obj_data['name']).lower()
         print("\n\nabbr.: ", ab)
         slug = f"{ab}-{Security.generate_random_char(8)}"
-        obj_data["access_url"] = f"https://gi-kace-solutions.onrender.com/{slug}"
+        # obj_data["access_url"] = f"http://localhost:8000/{slug}"
 
+        obj_data["access_url"] = f"https://gi-kace-solutions.onrender.com/{slug}"
 
         existing_org = db.query(Organization).filter(Organization.name == obj_data["name"].strip()).first()
         if existing_org:

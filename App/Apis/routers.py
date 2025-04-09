@@ -19,6 +19,7 @@ from .apis import router as mix
 from .auth import router as auth
 from .promotions import router as promo
 from .tenant_apis import router as tenant
+from .dashboard_routes import router as dashboard
 # from notification.socket import router as notif
 
 api =APIRouter()
@@ -27,6 +28,7 @@ api =APIRouter()
 api.include_router(uploadfile, prefix="/api/uploadfile", tags=["UploadFile"])
 api.include_router(bank, prefix="/api/default", tags=["Defaults"])
 api.include_router(auth, prefix="/api/auth", tags=["Auth"])
+api.include_router(dashboard, prefix="/api/dashboards", tags=["Dashboards"])
 api.include_router(user, prefix="/api/users", tags=["User Management"])
 api.include_router(mix, prefix="/api")
 api.include_router(organization, prefix="/api/organizations", tags=["Organizations"])

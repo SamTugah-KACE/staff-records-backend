@@ -927,10 +927,20 @@ class DashboardCreateSchema(DashboardBaseSchema):
     organization_id: UUID = Field(..., description="The organization this dashboard belongs to")
     user_id: Optional[UUID] = Field(None, description="Owner user id (optional)")
 
+
+class DashboardUpdateSchema(BaseModel):
+    dashboard_name: Optional[str] = Field(None, description="Name of the dashboard view")
+    dashboard_data: Optional[Dict[str, Any]] = Field(None, description="Configuration data for the dashboard (JSON)")
+    access_url: Optional[str] = Field(None, description="Accessible URL for this dashboard")
+    # Generally, organization and user are not updatable via dashboard update API.
+    
+    class Config:
+        from_attributes = True
+        
 class DashboardSchema(DashboardBaseSchema):
     # id: UUID
     organization_id: UUID
     user_id: Optional[UUID]
 
     class Config:
-        orm_mode = True
+        from_attributes = True

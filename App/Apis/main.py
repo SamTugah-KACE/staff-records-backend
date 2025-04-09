@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, BackgroundTasks, Query, status, UploadFile, File, Form
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, BackgroundTasks, Query, Request, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from uuid import UUID 
 from typing import List, Optional
@@ -30,7 +30,7 @@ from Schemas.schemas import (OrganizationCreateSchema, OrganizationSchema,
                          NextOfKinCreateSchema, NextOfKinSchema, FileStorageSchema,
                          AuditLogSchema, SystemSettingSchema, DashboardSchema)
 
-from Utils.util import   get_organization_acronym  # Import your utility classes
+from Utils.util import   get_create_user_url, get_organization_acronym  # Import your utility classes
 import json
 from Service.gcs_service import GoogleCloudStorage
 from Utils.config import DevelopmentConfig, get_config
@@ -81,6 +81,14 @@ def get_org_by_slug(slug: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Organization not found")
     return org
 
+@app.get("/create-url", summary="Fetch create user submit button request API URL")
+async def get_user_create_url(request: Request):
+    """
+    Returns the backend host URL with '/api/users/create' appended.
+    """
+    url = get_create_user_url(request)
+    return {"user_create_url": url}
+
 
 @app.post("/create-form/",  response_model=OrganizationSchema, status_code=status.HTTP_201_CREATED)
 async def create_organization_form(
@@ -95,26 +103,27 @@ async def create_organization_form(
     logos: Optional[List[UploadFile]] = File(None),  # Organization logos
     user_images: Optional[List[UploadFile]] = File(None),  # User profile images
     tenancies: Optional[str] = Form(json.dumps([
-            {
-                "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                "start_date": "2025-01-01",
-                "billing_cycle": "Monthly",
-                "terms_and_conditions_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                "terms_and_conditions": [
-                    {
-                        "title": "Default Terms",
-                        "content": {"agreement": "Sample agreement text"},
-                        "version": "1.0",
-                        "is_active": True
-                    }
-                ]
-            }
+            # {
+            #     "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+            #     "start_date": "2025-01-01",
+            #     "billing_cycle": "Monthly",
+            #     "terms_and_conditions_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+            #     "terms_and_conditions": [
+            #         {
+            #             "title": "Default Terms",
+            #             "content": {"agreement": "Sample agreement text"},
+            #             "version": "1.0",
+            #             "is_active": True
+            #         }
+            #     ]
+            # }
         ])),  # JSON string for tenancies
-    roles: Optional[str] = File(json.dumps([{
-      "name": "Administrator",
-      "permissions": {"read": "all", "write": "all", "delete": "all"},
-      "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-    },
+    roles: Optional[str] = File(json.dumps([
+    #     {
+    #   "name": "Administrator",
+    #   "permissions": {"read": "all", "write": "all", "delete": "all"},
+    #   "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+    # },
     # {
     #     "name": "HR", 
     #     "permissions": {"admin": False, "Deputy":True, "read": "all", "write": "all", "delete": "all"},
@@ -126,26 +135,27 @@ async def create_organization_form(
     #     "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6" 
     #     },
     ])),  # JSON string for roles
-    employees: Optional[str] = Form(json.dumps([{
-        "title": "Mr",
-        "first_name": "Sam",
-        "middle_name":"Kwaku",
-        "last_name": "Badu",
-        "date_of_birth": "1980-01-01",
-        "email": "vboat54@gmail.com",
-        "contact_info": {},
-        "hire_date": str(current_date),
-        "termination_date": str(next_year),
-        "custom_data": {
-            "has_previous_name": True,
-            "previous_name": "Sam Kwaku Boateng",
-            "Nationality": "Ghanaian",
-            "National_ID": "GHA123456789",
-        },
-        "staff_id": "1234567890",
-        "profile_image_path": "google.com/sam",
-        "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-    },
+    employees: Optional[str] = Form(json.dumps([
+    #     {
+    #     "title": "Mr",
+    #     "first_name": "Sam",
+    #     "middle_name":"Kwaku",
+    #     "last_name": "Badu",
+    #     "date_of_birth": "1980-01-01",
+    #     "email": "vboat54@gmail.com",
+    #     "contact_info": {},
+    #     "hire_date": str(current_date),
+    #     "termination_date": str(next_year),
+    #     "custom_data": {
+    #         "has_previous_name": True,
+    #         "previous_name": "Sam Kwaku Boateng",
+    #         "Nationality": "Ghanaian",
+    #         "National_ID": "GHA123456789",
+    #     },
+    #     "staff_id": "1234567890",
+    #     "profile_image_path": "google.com/sam",
+    #     "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+    # },
     # {
     #     "title": "Mrs",
     #     "first_name": "Mary",
@@ -169,15 +179,15 @@ async def create_organization_form(
     
     ])),
     users: Optional[str] = Form(json.dumps([
-                {
-                    "username": "",
-                    "email": "vboat54@gmail.com",   
-                    "hashed_password": "",
-                    "role_id": "123e4567-e89b-12d3-a456-426614174000",
-                    "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", 
-                    "image_path": "google.com/sam"
+                # {
+                #     "username": "",
+                #     "email": "vboat54@gmail.com",   
+                #     "hashed_password": "",
+                #     "role_id": "123e4567-e89b-12d3-a456-426614174000",
+                #     "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", 
+                #     "image_path": "google.com/sam"
                     
-                },
+                # },
                 # {
                 #      "username": "",
                 #     "email": "mary@example.com",   
@@ -189,11 +199,13 @@ async def create_organization_form(
                 # }
 
             ])),  # JSON string for users
-    settings: Optional[str] = Form(json.dumps([{
-            "setting_name": "dashboard_theme",
-            "setting_value": {         "color": "blue",         "font_size": "12px"       } ,
-            "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-        }])),  # JSON string for settings
+    settings: Optional[str] = Form(json.dumps([
+        # {
+        #     "setting_name": "dashboard_theme",
+        #     "setting_value": {         "color": "blue",         "font_size": "12px"       } ,
+        #     "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        # }
+        ])),  # JSON string for settings
     db: Session = Depends(get_db),
         # email_smtp_config: dict = Depends(get_smtp_config),
     config: DevelopmentConfig = Depends(get_config),  # Inject config
