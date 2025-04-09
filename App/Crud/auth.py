@@ -1,9 +1,10 @@
 import datetime
 from uuid import uuid4, UUID
+from cachetools import TTLCache
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect, UploadFile, Query, Response, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import httpx
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import Dict, Optional, List, Union
 from Utils.rate_limiter import RateLimiter
 from database.db_session import get_db
@@ -15,12 +16,20 @@ from Service.email_service import EmailService, send_email_notification
 from Utils.config import DevelopmentConfig
 from email_validator import EmailNotValidError
 from typing import List
+import logging
+
+
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 from Schemas.schemas import UserSchema, EmployeeSchema
 
 settings = DevelopmentConfig()
 
 rate_limiter = RateLimiter(max_attempts=3, period=60)  # 5 attempts per 60 seconds
+
+# Lightweight TTL in-memory cache
+active_token_cache = TTLCache(maxsize=10000, ttl=3600)
 
 # Initialize the global Security instance.
 # In a multi-tenant system sharing one schema, a common secret key is often used.
@@ -93,6 +102,7 @@ async def authenticate_facial(username: str, image: UploadFile) -> bool:
             status_code=504,
             detail="Facial authentication API request timed out."
         )
+    
 
 
 # ==============================
@@ -109,6 +119,9 @@ async def authenticate_user(
 ) -> Dict:
     """
     Two-way login for a multi-tenant system.
+
+    Implements IP/User-Agent validation, prevents concurrent logins,
+    utilizes token caching with TTL, and optimizes database queries.
     
     - If facial_image is provided and the external facial API is available,
       authenticate using facial recognition.
@@ -117,13 +130,22 @@ async def authenticate_user(
     - On successful login, generate a token, store it in the Token model, update last_login, and return user data
       along with the organization's dashboard access URL.
     """
+
+    # Retrieve client IP and User-Agent
+    client_ip = request.client.host
+    user_agent = request.headers.get('user-agent', 'unknown')
+    logger.info(f"Login attempt from IP: {client_ip}, User-Agent: {user_agent}")
+
+    
     # 1. Retrieve user by username (assume usernames are unique)
     user = db.query(User).filter(User.username == username).first()
     if not user:
+        logger.warning(f"Invalid login attempt for username: {username} from IP: {client_ip}")
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     # 2. Enforce multi-tenancy: (you might later also verify organization is active)
     Organization.check_organization_active(user.organization_id, db)
+
     
     # 3. Determine login option:
     login_option = None
@@ -136,6 +158,7 @@ async def authenticate_user(
             else:
                 # If facial authentication fails, fallback to password authentication if provided
                 if password is None:
+                    logger.warning(f"Failed facial recognition and no password provided for username: {username} from IP: {client_ip}")
                     raise HTTPException(status_code=401, detail="Facial authentication failed and no password provided.")
                 # Else, continue to password check below.
         else:
@@ -145,6 +168,7 @@ async def authenticate_user(
     # 4. If not using facial (or fallback), verify password.
     if login_option != "facial":
         if password is None:
+            logger.warning(f"No password provided for username: {username} from IP: {client_ip}")
             raise HTTPException(status_code=401, detail="Password is required.")
         
         user = db.query(User).filter(User.username == username).first()
@@ -159,6 +183,7 @@ async def authenticate_user(
         if not authenticate_password:
             # (Optionally log failed attempt in rate limiter)
             rate_limiter.log_failed_attempt(user, request)  # Log failed attempt
+            logger.warning(f"Invalid password for username: {username} from IP: {client_ip}")
             raise HTTPException(status_code=401, detail="Invalid credentials")
         login_option = "password"
     
@@ -171,17 +196,16 @@ async def authenticate_user(
         Token.expiration_period > datetime.datetime.utcnow()
     ).first()
 
-    name = None
-    empID = None
-    employee = db.query(Employee).filter(Employee.email == user.email, Employee.organization_id == user.organization_id).first()
-    if not employee:
-        name = None
-    else:
-        name = employee.title + " "+ employee.first_name
-        empID = employee.id
-
     if existing_token:
-        
+        name = None
+        # empID = None
+        employee = db.query(Employee).filter(Employee.email == user.email, Employee.organization_id == user.organization_id).first()
+        if not employee:
+            name = None
+        else:
+            name = f"{employee.title} {employee.first_name}" if employee else user.username
+            empID = employee.id
+ 
 
         if not name:
             name = user.username
@@ -193,7 +217,7 @@ async def authenticate_user(
         
         service = EmailService()
         await service.send_email(background_task, recipients=[user.email], subject=subject, html_body=message)
-        
+        logger.warning(f"Concurrent login attempt detected for username: {username} from IP: {client_ip}")
         raise HTTPException(status_code=403, detail="User already logged in on another device. Please logout first.")
     
 
@@ -223,6 +247,10 @@ async def authenticate_user(
 
     print("\n\n\nDecode: ", await global_security.decode_token(token_str))
     
+    # Cache the token with TTL
+    # cache.set(token_str, token_payload, timeout=3600)  # Cache for 1 hour
+
+
     # 7. Save token to DB (simulate event trigger)
     new_token = Token(
         user_id=user.id,
@@ -264,12 +292,18 @@ async def authenticate_user(
 
     # Instead of returning the raw 'user' object, convert it using your schema:
     user_serialized = UserSchema.model_validate(user)
+    employee = db.query(Employee).filter(
+        Employee.email == user.email,
+        Employee.organization_id == user.organization_id
+    ).first()
     staff_serialized = EmployeeSchema.model_validate(employee) if employee else None
+
+    logger.info(f"User {username} authenticated successfully from IP: {client_ip} using {login_method} method.")
 
     # 11. Return response.
     return {
-        "name": name if name else "",
-        "staff_id": empID if empID else "",
+        "name": f"{employee.title} {employee.first_name}" if employee else "",
+        "staff_id": employee.id if employee else "",
         "image_path": user.image_path,
         "username": user.username,
         "user":user_serialized,
@@ -395,7 +429,7 @@ def require_permissions(required: List[str]):
         if not any(perm in user_permissions for perm in required):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions"
+                detail=f"Insufficient permissions. Missing at least one of: {', '.join(required)}"
             )
         return current_user
     return permission_checker

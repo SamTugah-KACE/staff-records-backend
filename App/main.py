@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from Apis.default import create_default_permissions
+from Apis.default import create_default
 from Apis.routers import api
 from database.db_session import temp_db, SessionLocal
 from sqlalchemy.orm import Session
@@ -145,7 +145,7 @@ async def on_startup():
         # Create a synchronous session
         db: Session = SessionLocal()
         try:
-            create_default_permissions(db=db)
+            create_default(db=db)
         finally:
             db.close()
         

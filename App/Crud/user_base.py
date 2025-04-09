@@ -1482,6 +1482,7 @@ class UserCRUD:
         )
         if created_by:
             setattr(employee_record, "_uploaded_by_id", created_by)
+        setattr(employee_record, "_role_id", role_id) 
         db.add(employee_record)
         db.commit()
         db.refresh(employee_record)
