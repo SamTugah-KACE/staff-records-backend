@@ -34,5 +34,6 @@ email_validator
 apscheduler
 redis
 celery
+rapidfuzz
 # apscheduler-redis
 # git+https://github.com/agronholm/apscheduler_redis_jobstore.git#egg=apscheduler_redis_jobstore

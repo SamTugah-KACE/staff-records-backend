@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Index, String, Boolean, JSON, Date, DateTime, Integer, ForeignKey, DECIMAL,
-    Table, create_engine, CheckConstraint, LargeBinary, event
+    Table, create_engine, CheckConstraint, LargeBinary, event, inspect, update
 )
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -9,6 +9,7 @@ from sqlalchemy.orm import relationship, backref, Session
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 # import uuid
+# from Models.mixins import register_file_path_listener
 from Models.Tenants.organization import Organization
 from Service.email_service import EmailService, get_email_template
 from Utils.security import Security
@@ -62,10 +63,127 @@ min_year = current_year - 18
 max_year = current_year - 60
 
 
+def _infer_file_type(file_url: str) -> str:
+    """
+    Infer file type based on file extension.
+    """
+    file_extension = file_url.split(".")[-1].lower()
+    if file_extension in ["jpeg", "jpg", "png", "gif"]:
+        return "Image"
+    elif file_extension == "pdf":
+        return "PDF"
+    elif file_extension in ["doc", "docx"]:
+        return "Document"
+    else:
+        return "File"
+
+def register_file_path_listener(model, file_fields):
+    """
+    Register an event listener on the given model so that when a record is inserted or updated,
+    file storage records are either created or updated automatically. Also, attach a deletion listener.
+    
+    - For each file field in `file_fields`:
+      - If the field contains a dict (multiple files), iterate over its key/value pairs.
+      - If it’s a string (single file), process it directly.
+    - The listener uses the record’s ID and organization_id to check if a corresponding FileStorage record exists.
+    - If an uploader’s ID is provided as a transient attribute (_uploaded_by_id), it will be set.
+    """
+    @event.listens_for(model, "after_insert")
+    @event.listens_for(model, "after_update")
+    def file_path_listener(mapper, connection, target):
+        organization_id = getattr(target, "organization_id", None)
+        uploader_id = getattr(target, "_uploaded_by_id", None)
+        record_type = model.__tablename__
+        
+        for field in file_fields:
+            value = getattr(target, field, None)
+            if not value:
+                continue
+            # Process multiple file uploads (dict structure)
+            if isinstance(value, dict):
+                for file_name, file_url in value.items():
+                    file_type = _infer_file_type(file_url)
+                    existing = connection.execute(
+                        FileStorage.__table__.select().where(
+                            (FileStorage.record_id == target.id) &
+                            (FileStorage.organization_id == organization_id) &
+                            (FileStorage.record_type == record_type) &
+                            (FileStorage.file_name == file_name)
+                        )
+                    ).fetchone()
+                    if existing:
+                        update_stmt = FileStorage.__table__.update().where(
+                            FileStorage.__table__.c.id == existing.id
+                        ).values(
+                            file_path=file_url,
+                            file_type=file_type,
+                            uploaded_by_id=uploader_id
+                        )
+                        connection.execute(update_stmt)
+                    else:
+                        ins_stmt = FileStorage.__table__.insert().values(
+                            file_name=file_name,
+                            file_path=file_url,
+                            file_type=file_type,
+                            record_id=target.id,
+                            record_type=record_type,
+                            organization_id=organization_id,
+                            uploaded_by_id=uploader_id
+                        )
+                        connection.execute(ins_stmt)
+            # Process single file upload (string URL)
+            elif isinstance(value, str):
+                file_type = _infer_file_type(value)
+                file_name = value.split("/")[-1]
+                existing = connection.execute(
+                    FileStorage.__table__.select().where(
+                        (FileStorage.record_id == target.id) &
+                        (FileStorage.organization_id == organization_id) &
+                        (FileStorage.record_type == record_type) &
+                        (FileStorage.file_name == file_name)
+                    )
+                ).fetchone()
+                if existing:
+                    update_stmt = FileStorage.__table__.update().where(
+                        FileStorage.__table__.c.id == existing.id
+                    ).values(
+                        file_path=value,
+                        file_type=file_type,
+                        uploaded_by_id=uploader_id
+                    )
+                    connection.execute(update_stmt)
+                else:
+                    ins_stmt = FileStorage.__table__.insert().values(
+                        file_name=file_name,
+                        file_path=value,
+                        file_type=file_type,
+                        record_id=target.id,
+                        record_type=record_type,
+                        organization_id=organization_id,
+                        uploaded_by_id=uploader_id
+                    )
+                    connection.execute(ins_stmt)
+
+    @event.listens_for(model, "after_delete")
+    def file_path_delete_listener(mapper, connection, target):
+        """
+        When a record is deleted, remove all associated FileStorage records.
+        """
+        organization_id = getattr(target, "organization_id", None)
+        record_type = model.__tablename__
+        delete_stmt = FileStorage.__table__.delete().where(
+            (FileStorage.record_id == target.id) &
+            (FileStorage.organization_id == organization_id) &
+            (FileStorage.record_type == record_type)
+        )
+        connection.execute(delete_stmt)
+
+    return file_path_listener
+
+
 #Departments
 class Department(BaseModel):
     __tablename__ = "departments"
-    
     
     name = Column(String, nullable=False)
     # department_head_id points to a staff (Employee)
@@ -105,6 +223,7 @@ class User(BaseModel):
         foreign_keys="[FileStorage.record_id, FileStorage.record_type]",
         viewonly=True,
     )
+register_file_path_listener(User, ['image_path'])
 
 class Token(BaseModel):
     __tablename__ = "tokens"
@@ -159,6 +278,8 @@ class Employee(BaseModel):
     # NEW FIELD: Employee type.
     # Option 1: Simple string field
     # employee_type = Column(String, nullable=True)
+
+    staff_id = Column(String, unique=True, index=True, nullable=True)
     
     # Option 2: Foreign key reference to a dedicated EmployeeType model.
     employee_type_id = Column(UUID(as_uuid=True), ForeignKey("employee_types.id", ondelete="SET NULL"), nullable=True)
@@ -181,7 +302,23 @@ class Employee(BaseModel):
     employee_type = relationship("EmployeeType", back_populates="employees")
 
     department = relationship("Department", foreign_keys=[department_id], backref="employees")
+    
 
+def _sync_employee_to_user(connection, old_email, old_org_id, changes, employee_id):
+    """
+    Helper function to update the corresponding User record using the old email and organization_id.
+    """
+    user_table = User.__table__
+    connection.execute(
+        update(user_table)
+        .where(
+            (user_table.c.email == old_email) &
+            (user_table.c.organization_id == old_org_id)
+        )
+        .values(**changes)
+    )
+    print(f"[Sync] User record synchronized for Employee {employee_id}: {changes}")
+    return {"data": f"User record synchronized for Employee {employee_id}: {changes}"}
     # =============================================================================
 # Event Listener for Automatic User Creation
 # =============================================================================
@@ -191,9 +328,15 @@ class Employee(BaseModel):
 @event.listens_for(Employee, "after_insert")
 def create_user_for_employee(mapper, connection, target):
     """
-    After an Employee record is inserted, create a corresponding User.
-    Expects transient attributes _role_id and _plain_password on target.
+    After an Employee is inserted, create a corresponding User record or update an existing one.
+    Uses transient attributes on target:
+      - _role_id: The role identifier for the new user.
+      - _plain_password: (Optional) Plain text password; if missing, one is generated.
+      - _user_image: (Optional) Uploaded user image.
+      - _created_by: (Optional) The UUID of the account creator.
     """
+
+    # Retrieve transient attributes.
     # Retrieve the role id that was attached during employee creation.
     role_id = getattr(target, "_role_id", None)
     plain_password = getattr(target, "_plain_password", None)
@@ -202,40 +345,105 @@ def create_user_for_employee(mapper, connection, target):
 
     if role_id is None:
         # You may log a warning or decide to skip user creation.
-        print(f"Employee {target.id} inserted with no role; skipping user creation.")
+        print(f"[after_insert] Employee {target.id} inserted with no role; skipping user creation.")
         return
 
-    if plain_password is None:
-        password_plain = global_security.generate_random_string(6)
-    else:
-        password_plain = plain_password
+    # Generate password if not provided.
+    password_plain = plain_password if plain_password is not None else Security.generate_random_string(6)
 
 
     # Generate a username from the employee’s first name plus 4 random digits.
     username = f"{target.email}"
     hashed_pw = global_security.hash_password(password_plain)
 
-    # Insert the corresponding user record.
-    user_table = User.__table__
-    ins_stmt = user_table.insert().values(
-        username=username,
-        email=target.email,
-        hashed_password=hashed_pw,
-        role_id=role_id,
-        organization_id=target.organization_id,
-        is_active=True,
-        image_path = user_image,
-        created_by = created_by
-        
-    )
-    connection.execute(ins_stmt)
-
     
-    # In a production system, send the plain password securely (or force a reset).
-    print(
-        f"User created for Employee {target.id}: username '{username}' with initial password '{password_plain}'"
-    )
-    return {"data": f"User created for Employee {target.id}: username '{username}' with initial password '{password_plain}'"}
+    user_table = User.__table__
+    # Check if a User record for this Employee (by email and organization) already exists.
+    existing = connection.execute(
+        user_table.select().where(
+            (user_table.c.email == target.email) &
+            (user_table.c.organization_id == target.organization_id)
+        )
+    ).fetchone()
+
+    # Prepare the values to sync.
+    sync_values = {
+        "email": target.email,
+        "organization_id": target.organization_id,
+        "image_path": target.profile_image_path,
+        "role_id": role_id,
+    }
+    
+    if existing:
+        # # Optionally log or update instead of inserting
+        # print(f"User already exists for Employee {target.id}; skipping creation.")
+        # return
+        # If a user already exists, update the record.
+        connection.execute(
+            update(user_table)
+            .where(
+                (user_table.c.email == target.email) &
+                (user_table.c.organization_id == target.organization_id)
+            )
+            .values(**sync_values)
+        )
+        print(f"[after_insert] Existing User record updated for Employee {target.id}.")
+        return {"data": f"User record updated for Employee {target.id}."}
+    
+    else:
+        ins_stmt = user_table.insert().values(
+            username=username,
+            email=target.email,
+            hashed_password=hashed_pw,
+            role_id=role_id,
+            organization_id=target.organization_id,
+            is_active=True,
+            image_path = user_image,
+            created_by = created_by
+            
+        )
+        connection.execute(ins_stmt)
+
+        # In a production system, send the plain password securely (or force a reset).
+        print(
+            f"User created for Employee {target.id}: username '{username}' with initial password '{password_plain}'"
+        )
+        return {"data": f"User created for Employee {target.id}: username '{username}' with initial password '{password_plain}'"}
+
+register_file_path_listener(Employee, ['profile_image_path'])
+
+
+@event.listens_for(Employee, "after_update")
+def sync_employee_to_user_after_update(mapper, connection, target):
+    """
+    After an Employee is updated, synchronize changes to the corresponding User record.
+    This listener checks for changes in email, organization_id, and profile_image_path.
+    If any of these fields have changed, it uses the old values (if available)
+    to locate the existing User record and updates it.
+    Optionally, if a transient attribute _role_id is provided, update role_id as well.
+    """
+    state = inspect(target)
+    # Determine old values from history if they have changed.
+    old_email = state.attrs.email.history.deleted[0] if state.attrs.email.history.deleted else target.email
+    old_org_id = state.attrs.organization_id.history.deleted[0] if state.attrs.organization_id.history.deleted else target.organization_id
+
+    changes = {}
+    if state.attrs.email.history.has_changes():
+        changes["email"] = target.email
+        changes["username"] = target.email  # Assuming username mirrors email.
+    if state.attrs.organization_id.history.has_changes():
+        changes["organization_id"] = target.organization_id
+    if state.attrs.profile_image_path.history.has_changes():
+        changes["image_path"] = target.profile_image_path
+    if hasattr(target, "_role_id") and target._role_id is not None:
+        changes["role_id"] = target._role_id
+
+    if not changes:
+        return  # Nothing changed that requires synchronization.
+
+    _sync_employee_to_user(connection, old_email, old_org_id, changes, target.id)
+    return {"data": f"User record synchronized for Employee {target.id}: {changes}"}
+
 
 
 # Academic Qualification
@@ -257,6 +465,8 @@ class AcademicQualification(BaseModel):
         viewonly=True,
     )
 
+register_file_path_listener(AcademicQualification, ['certificate_path'])
+
 class ProfessionalQualification(BaseModel):
     __tablename__ = "professional_qualifications"
 
@@ -275,6 +485,8 @@ class ProfessionalQualification(BaseModel):
         foreign_keys="[FileStorage.record_id, FileStorage.record_type]",
         viewonly=True,
     )
+register_file_path_listener(ProfessionalQualification, ['license_path'])
+
 
 # Employment History
 class EmploymentHistory(BaseModel):
@@ -286,7 +498,7 @@ class EmploymentHistory(BaseModel):
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=True)
     details = Column(JSONB, nullable=True)
-    documents_path = Column(String, nullable=True)  # Path to related documentsy
+    documents_path = Column(String, nullable=True)  # Path to related documents
 
     #Relationship
     employee = relationship("Employee", back_populates="employment_history")
@@ -296,6 +508,8 @@ class EmploymentHistory(BaseModel):
         foreign_keys="[FileStorage.record_id, FileStorage.record_type]",
         viewonly=True,
     )
+
+register_file_path_listener(EmploymentHistory, ['documents_path'])
 
 # Emergency Contact
 class EmergencyContact(BaseModel):
@@ -485,6 +699,16 @@ class DataBank(BaseModel):
 
     # organization = relationship("Organization", back_populates="data_banks")
 
+
+class Client(BaseModel):
+    __tablename__ = "clients"
+
+    api_key = Column(String, nullable=False)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    is_active = Column(Boolean, default=True,   nullable=False)
+    description = Column(JSONB, nullable=True)
+
+    organization = relationship("Organization", back_populates="clients")
 
 # Indexes
 Index('idx_user_organization', User.organization_id, User.email, unique=True)

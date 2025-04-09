@@ -36,9 +36,9 @@ def get_branches(db: Session, organization_id: uuid.UUID, skip: int = 0, limit: 
     if not org:
         raise HTTPException(status_code=400, detail="Organization not found.")
     
-    is_branched = org.nature
+    is_branched = org.nature.lower()
     print("is_branched:: ", is_branched)
-    if "Single" in is_branched :
+    if "single" in is_branched :
         raise HTTPException(status_code=400, detail="Organization is a Single Managed, hence has no Branches.")
 
     return db.query(Branch).filter(Branch.organization_id == organization_id).offset(skip).limit(limit).all()

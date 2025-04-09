@@ -31,6 +31,12 @@ from Schemas.schemas import (
     NextOfKinCreateSchema,  NextOfKinSchema,
     FileStorageSchema, 
 )
+from Crud.auth import get_db, require_permissions  # RBAC dependency from earlier
+from Crud.role_crud import (create_role, get_role, get_role_by_id_and_org_id, get_roles_by_org, 
+                            update_role, delete_role, get_role_permissions, get_roles_by_permission, 
+                            get_role_by_name, get_role_by_name_and_org, get_role_by_name_and_org_id, 
+                                                        
+                            )
 from Crud.base import CRUDBase
 from Crud.department import *
 from Crud.async_base import CRUDBase as AsyncCRUDBase
@@ -125,13 +131,27 @@ def delete_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, db: Sessio
 
 ### User Endpoints ###
 @router.post("/roles", tags=["Roles"], response_model=RoleCreateSchema)
-async def create_role(
+async def create_roles(
     obj_in: RoleCreateSchema,
     db: Session = Depends(get_db),
     created_by: Optional[UUID] = None,
 ):
     try:
         result =  role_crud.create(db=db, obj_in=obj_in,user_id=created_by )
+        return result
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/role", tags=["Roles"], response_model=RoleCreateSchema)
+async def create(
+    obj_in: RoleCreateSchema,
+    db: Session = Depends(get_db),
+    created_by: Optional[UUID] = None,
+):
+    try:
+        result =  create_role(db=db, obj_in=obj_in,user_id=created_by )
         return result
     except HTTPException as e:
         raise e
@@ -185,6 +205,54 @@ async def list_roles(
         return {"flat": flat_roles, "grouped": grouped_roles}
     else:
         return [RoleSchema.from_orm(role) for role in result]
+
+
+
+@router.get("/roles/{role_id}", tags=["Roles"], response_model=RoleSchema)
+def get_role_by_id(
+    role_id: UUID,
+    organization_id: UUID = Query(..., description="Organization ID for multi-tenancy"),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieves a role record by its ID and organization ID.
+    """
+    # reference = {"id": role_id, "organization_id": organization_id}
+    try:
+        # result = role_crud.get(db, reference)
+        result = get_role_by_id_and_org_id(db, role_id, organization_id)
+        return result
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/roles/name/{role_name}", tags=["Roles"], response_model=RoleSchema)
+def get_role_by_name(
+    role_name: str,
+    organization_id: UUID = Query(..., description="Organization ID for multi-tenancy"),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieves a role record by its name and organization ID.
+    """
+    # reference = {"name": role_name, "organization_id": organization_id}
+    try:
+        result = get_role_by_name_and_org_id(db, role_name, organization_id)
+        return result
+        
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+
+
+
+
+
 
 
 

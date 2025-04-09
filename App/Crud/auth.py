@@ -1,6 +1,6 @@
 import datetime
 from uuid import uuid4, UUID
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect, UploadFile, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect, UploadFile, Query, Response, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import httpx
 from sqlalchemy.orm import Session
@@ -214,7 +214,10 @@ async def authenticate_user(
         "last_activity": now_ts
     }
     token_str =  global_security.generate_token(data=token_payload, expires_in=3600)
-    token_expiration = (datetime.datetime.utcnow() + datetime.timedelta(seconds=3600)).strftime("%a, %d %b %Y %H:%M:%S GMT")  # Token valid for 1 hour
+    # Set token expiration to 1 hour from now.
+    token_expiration_dt = datetime.datetime.utcnow() + datetime.timedelta(seconds=3600)
+    token_expiration = token_expiration_dt.strftime("%a, %d %b %Y %H:%M:%S GMT")  # Token valid for 1 hour
+    # token_expiration = (datetime.datetime.utcnow() + datetime.timedelta(seconds=3600)).strftime("%a, %d %b %Y %H:%M:%S GMT")  # Token valid for 1 hour
 
     print("\nGenerated token: ", token_str)
 
@@ -225,7 +228,7 @@ async def authenticate_user(
         user_id=user.id,
         organization_id=user.organization_id,
         token=token_str,
-        expiration_period=token_expiration,
+        expiration_period=token_expiration_dt,
         login_option=login_option,
         last_activity=datetime.datetime.utcnow()
     )
@@ -251,7 +254,7 @@ async def authenticate_user(
         key="token",
         value=token_str,
         httponly=True,
-        secure=True,
+        secure=True,  # ensure HTTPS in production
         samesite='None',
         expires=token_expiration,
         path="/"
@@ -379,6 +382,23 @@ async def get_current_user(
         "permissions": role_obj.permissions
     }
 
+
+def require_permissions(required: List[str]):
+    """
+    Dependency generator to enforce that the current user has at least one
+    of the permissions in the 'required' list.
+    
+    Usage: Inject as a dependency on protected endpoints.
+    """
+    def permission_checker(current_user: Dict = Depends(get_current_user)) -> Dict:
+        user_permissions = current_user.get("permissions") or []
+        if not any(perm in user_permissions for perm in required):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions"
+            )
+        return current_user
+    return permission_checker
 
 
 def get_token_data_by_user_id( userid: UUID, db: Session = Depends(get_db)) -> dict:

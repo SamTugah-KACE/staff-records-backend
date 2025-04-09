@@ -40,15 +40,15 @@ class BaseConfig(BaseSettings):
     # SMTP_HOST: str = Field("smtp.gmail.com", env="SMTP_HOST", description="SMTP host.")
     # SMTP_PORT: int = Field(587, env="SMTP_PORT", description="SMTP port.")
     
-    MAIL_USERNAME: str =Field("dev.aiti.com.gh@gmail.com", env="MAIL_USERNAME")
-    MAIL_PASSWORD: str =Field("", env="MAIL_PASSWORD")
-    MAIL_FROM: str =Field("dev.aiti.com.gh@gmail.com", env="MAIL_FROM", )
-    MAIL_PORT: int =Field(587, env="MAIL_PORT")
-    MAIL_SERVER: str =Field("smtp.gmail.com",env="MAIL_SERVER")
-    MAIL_STARTTLS: bool = Field(True, env="MAIL_STARTTLS")
-    MAIL_SSL_TLS: bool =Field(False, env="MAIL_SSL_TLS")
-    USE_CREDENTIALS: bool = Field(True, env="USE_CREDENTIALS")
-    VALIDATE_CERTS: bool = Field(True, env="VALIDATE_CERTS")
+    MAIL_USERNAME: str =Field(..., env="MAIL_USERNAME")
+    MAIL_PASSWORD: str =Field(..., env="MAIL_PASSWORD") #palvpbokbnisspps
+    MAIL_FROM: str =Field(..., env="MAIL_FROM", description="Sender email address for SMTP.")
+    MAIL_PORT: int =Field(..., env="MAIL_PORT")
+    MAIL_SERVER: str =Field(..., env="MAIL_SERVER", description="SMTP host.")
+    MAIL_STARTTLS: bool = Field(..., env="MAIL_STARTTLS")
+    MAIL_SSL_TLS: bool =Field(..., env="MAIL_SSL_TLS")
+    USE_CREDENTIALS: bool = Field(..., env="USE_CREDENTIALS")
+    VALIDATE_CERTS: bool = Field(..., env="VALIDATE_CERTS")
 
 
     # Logging
@@ -86,7 +86,7 @@ class BaseConfig(BaseSettings):
     EMAIL_RETRY_ATTEMPTS: int = Field(3, description="Number of retry attempts for sending emails.")
     EMAIL_RETRY_DELAY: float = Field(1.0, description="Delay between email retries (in seconds).")
 
-    GCS_CREDENTIALS: dict  # We want this as a dict
+    GCS_CREDENTIALS: dict = Field(..., env="GCS_CREDENTIALS")  # We want this as a dict
     @field_validator("GCS_CREDENTIALS", mode="before")
     def parse_gcs_credentials(cls, value):
         if isinstance(value, str):
@@ -109,7 +109,7 @@ class DevelopmentConfig(BaseConfig):
     """
     DEBUG: bool = True
     LOG_LEVEL: str = "DEBUG"
-    BUCKET_NAME: str = "developers-bucket" 
+    BUCKET_NAME: str = Field("", env="BUCKET_NAME", description="Google Cloud Storage bucket name.")
     # GOOGLE_APPLICATION_CREDENTIALS:str = "GOOGLE_APPLICATION_CREDENTIALS"
     # GOOGLE_APPLICATION_CREDENTIALS:str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "google_cloud_storage_api.json")
     GOOGLE_APPLICATION_CREDENTIALS:str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "service_account.json")

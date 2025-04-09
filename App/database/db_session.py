@@ -45,6 +45,13 @@ AsyncSessionLocal = sessionmaker(
     expire_on_commit=False,
 )
 
+# # Configure your async database URL
+# DATABASE_URL = "postgresql+asyncpg://username:password@host/dbname"
+# engine = create_async_engine(DATABASE_URL, echo=False)
+# async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+ 
+
 # Declarative Base
 Base = declarative_base()
 
@@ -86,7 +93,9 @@ async def get_async_db():
         finally:
             await session.close()
 
-
+# async def get_db():
+#     async with async_session() as session:
+#         yield session
 
 from Models.Tenants.organization import Organization
 from Models.Tenants.role import Role

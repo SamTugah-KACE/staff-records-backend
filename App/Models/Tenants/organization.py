@@ -38,7 +38,7 @@ class Organization(BaseModel):
     ranks = relationship("Rank", back_populates="organization", cascade="all, delete")
     employee_types = relationship("EmployeeType", back_populates="organization")
     promotion_policies = relationship("PromotionPolicy", back_populates="organization")
-    
+    clients = relationship("Client", back_populates="organization")
 
    
     # Method to enforce active organization

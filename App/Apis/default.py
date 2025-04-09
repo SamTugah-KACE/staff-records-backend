@@ -22,40 +22,169 @@ from Schemas.schemas import DataBankSchema, DataCreateBankSchema  # Import your 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Standardized permissions as provided.
+standard_permissions = [
+    # --- Employee Records Management ---
+    "employee:create",          # Create new employee records
+    "employee:read",            # View employee details
+    "employee:update",          # Update employee records
+    "employee:delete",          # Delete employee records
+    "employee:archive",         # Archive employee records
+    "employee:transfer",        # Transfer employee between departments
+
+    # --- Organizational & Role Management ---
+    "organization:read",        # View organization details and settings
+    "organization:update",      # Modify organization configurations
+    "role:manage",              # Create, update, delete roles and assign permissions
+    "user:assignRole",          # Assign roles to users
+    "audit:read",               # View audit logs
+
+    # --- Attendance and Time Tracking ---
+    "attendance:record",        # Record or adjust attendance entries
+    "attendance:read",          # View attendance records
+    "attendance:update",        # Update attendance information
+    "leave:apply",              # Apply for leave
+    "leave:approve",            # Approve leave applications
+    "leave:manage",             # Manage leave requests (cancel/update)
+
+    # --- Payroll and Benefits Administration ---
+    "payroll:process",          # Initiate and oversee payroll processing
+    "payroll:read",             # View payroll details and payslips
+    "payroll:update",           # Adjust payroll data prior to processing
+    "benefits:manage",          # Administer employee benefit programs
+    "payroll:report",           # Generate payroll reports
+
+    # --- Recruitment & Onboarding ---
+    "recruitment:create",       # Post new job listings and openings
+    "recruitment:read",         # View recruitment data and applicant details
+    "recruitment:update",       # Update job postings or applicant status
+    "recruitment:delete",       # Remove outdated recruitment data
+    "onboarding:manage",        # Manage onboarding for new hires
+
+    # --- Performance Management ---
+    "performance:review:create",    # Initiate performance review cycles
+    "performance:review:read",      # Access performance review records
+    "performance:review:update",    # Modify performance reviews as needed
+    "performance:goal:manage",      # Set and track employee performance goals
+
+    # --- Security and Compliance ---
+    "security:read",            # View security logs and alerts
+    "security:update",          # Update security configurations (e.g., policies, MFA)
+    "compliance:read",          # Access compliance reports and audit data
+    "compliance:update",        # Update compliance-related settings
+
+    # --- Reporting and Analytics ---
+    "report:generate",          # Create custom HR reports
+    "report:read",              # View pre-generated or dynamic report data
+
+    # --- Dashboard Routing for Dynamic UI ---
+    "hr:dashboard",             # Access the HR Manager Dashboard view
+    "department:head:dashboard",# Access the Department Head Dashboard view
+    "staff:dashboard",          # Access the generic Staff Dashboard view
+    "admin:dashboard",          # Access the Admin Dashboard view
+    "manager:dashboard",        # Access the Manager Dashboard view
+    "branch:manager:dashboard", # Access the Branch Manager Dashboard view
+    "finance:dashboard",        # Access the Finance Dashboard view
+    
+    "hr:dashboard:read",        # View HR Dashboard data
+    "hr:dashboard:update",      # Update HR Dashboard settings
+    "hr:dashboard:create",      # Create new HR Dashboard entries
+    "hr:dashboard:delete",      # Delete HR Dashboard entries
+    
+    "hr:dashboard:archive",     # Archive HR Dashboard entries
+    "hr:dashboard:transfer",    # Transfer HR Dashboard entries
+    
+    "hr:dashboard:report",      # Generate HR Dashboard reports
+    "hr:dashboard:analytics",   # Access HR Dashboard analytics
+    "hr:dashboard:permissions", # Manage HR Dashboard permissions
+    "hr:dashboard:settings",    # Update HR Dashboard settings
+    "hr:dashboard:notifications",# Manage HR Dashboard notifications
+    "hr:dashboard:alerts",      # View HR Dashboard alerts
+    "hr:dashboard:logs",        # Access HR Dashboard logs
+    "hr:dashboard:history",     # View HR Dashboard history
+    "hr:dashboard:comments",    # Manage HR Dashboard comments
+    "hr:dashboard:feedback",    # Provide feedback on HR Dashboard entries
+    "hr:dashboard:reviews",     # Manage HR Dashboard reviews
+    "hr:dashboard:ratings",     # Rate HR Dashboard entries
+    "hr:dashboard:tags",        # Tag HR Dashboard entries
+    "hr:dashboard:categories",  # Categorize HR Dashboard entries
+    "hr:dashboard:groups",      # Group HR Dashboard entries
+    "hr:dashboard:filters",     # Filter HR Dashboard entries
+    "hr:dashboard:search",      # Search HR Dashboard entries
+    "hr:dashboard:sort",        # Sort HR Dashboard entries
+    "hr:dashboard:export",      # Export HR Dashboard entries
+    "hr:dashboard:import",      # Import HR Dashboard entries
+    "hr:dashboard:sync",        # Sync HR Dashboard entries
+    "hr:dashboard:backup",      # Backup HR Dashboard entries
+    "hr:dashboard:restore",     # Restore HR Dashboard entries
+    "hr:dashboard:clone",       # Clone HR Dashboard entries
+    "hr:dashboard:duplicate",   # Duplicate HR Dashboard entries
+    "hr:dashboard:merge",       # Merge HR Dashboard entries
+    "hr:dashboard:split",       # Split HR Dashboard entries
+    "hr:dashboard:combine",     # Combine HR Dashboard entries
+    "hr:dashboard:link",        # Link HR Dashboard entries
+    "hr:dashboard:unlink",      # Unlink HR Dashboard entries
+    "hr:dashboard:connect",     # Connect HR Dashboard entries
+    "hr:dashboard:disconnect",  # Disconnect HR Dashboard entries
+    "hr:dashboard:integrate",   # Integrate HR Dashboard entries
+    "hr:dashboard:api",         # Access HR Dashboard API
+    "hr:dashboard:webhook",     # Manage HR Dashboard webhooks
+    "hr:dashboard:events",      # Manage HR Dashboard events
+    "hr:dashboard:triggers",    # Manage HR Dashboard triggers
+    "hr:dashboard:actions",     # Manage HR Dashboard actions
+    "hr:dashboard:workflows",   # Manage HR Dashboard workflows
+    "hr:dashboard:processes",   # Manage HR Dashboard processes
+    "hr:dashboard:tasks",       # Manage HR Dashboard tasks
+    "hr:dashboard:jobs",        # Manage HR Dashboard jobs
+    "hr:dashboard:queues",      # Manage HR Dashboard queues
+    "hr:dashboard:threads",     # Manage HR Dashboard threads
+    "hr:dashboard:workers",     # Manage HR Dashboard workers
+    "hr:dashboard:services",    # Manage HR Dashboard services
+    "hr:dashboard:applications",# Manage HR Dashboard applications
+    "hr:dashboard:platforms",   # Manage HR Dashboard platforms
 
 
 
 
-def create_default_roles(db: Session):
+    ]
+
+
+
+def create_default_permissions(db: Session):
     """
     Efficiently seeds default roles into the databank table.
     Ensures atomicity, handles duplicates, and appends new roles to the existing structure.
     """
-    roles = [
-        {"name": "Admin", "permissions": {"admin": True}},
-        {"name": "User", "permissions": {"admin": False}},
-    ]
+    
 
     try:
-        print("\n\ndb:: ", db)
-        print("\n\nDatabank:: ", DataBank)
+        # print("\n\ndb:: ", db)
+        # print("\n\nDatabank:: ", DataBank)
         with db.begin():  # Begin a transaction
             # Fetch or create the databank entry for roles
-            databank_entry = db.query(DataBank).filter(DataBank.data_name == "roles").first()
-            print("databank_entry:: ", databank_entry)
+            databank_entry = db.query(DataBank).filter(DataBank.data_name == "permissions").first()
+            # print("databank_entry:: ", databank_entry)
             if not databank_entry:
                 # If no existing entry, create a new one
-                databank_entry = DataBank(data_name="roles", data=roles)
+                databank_entry = DataBank(data_name="permissions", data=standard_permissions)
                 db.add(databank_entry)
             else:
                 # Check for duplicates and append new roles
-                existing_roles = databank_entry.data
-                new_roles = [
-                    role for role in roles
-                    if not any(existing_role["name"] == role["name"] for existing_role in existing_roles)
-                ]
-                if new_roles:
-                    databank_entry.data.extend(new_roles)  # Append only unique roles
+                # existing_ = databank_entry.data
+                # new_data = [
+                #     permission for permission in standard_permissions
+                #     if permission not in existing_  # Ensure uniqueness
+                #     and isinstance(permission, str)  # Ensure it's a string
+                #     and permission not in existing_  # Check if the permission is not already present
+                #     if not any(existing_permission["name"] == permission["name"] for existing_permission in existing_)
+                # ]
+                # if new_data:
+                #     databank_entry.data.extend(new_data)  # Append only unique permissions
+                # Update the existing entry to include any missing permissions.
+                existing_perms = set(databank_entry.data if databank_entry.data else [])
+                updated_perms = existing_perms.union(set(standard_permissions))
+                databank_entry.data = list(updated_perms)
+                logger.info("Updated existing standard permissions in the DataBank entry.")
 
             # Commit changes
             db.commit()

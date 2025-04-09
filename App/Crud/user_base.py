@@ -1,6 +1,8 @@
 import asyncio
 import json
-from fastapi import HTTPException, Depends, BackgroundTasks, UploadFile
+import random
+import string
+from fastapi import HTTPException, Depends, BackgroundTasks, UploadFile, HTTPException
 from fastapi.responses import FileResponse
 import requests
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,24 +23,27 @@ import io
 
 import urllib.parse
 
-from Models.Tenants.organization import Organization
-
-from Models.models import Employee, User
+from Models.Tenants.organization import (Branch, Organization, Rank)
+from Models.dynamic_models import EmployeeDynamicData, BulkUploadError
+from Models.models import (Employee, User, Department, EmployeePaymentDetail,
+                           AcademicQualification, EmergencyContact, EmployeeType,
+                           EmploymentHistory, ProfessionalQualification, NextOfKin,
+                           SalaryPayment)
 from Utils.rate_limiter import RateLimiter
 from Schemas.schemas import OrganizationCreateSchema, EmployeeCreateSchema
 from Models.Tenants.role import Role
 import os
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import re
 from Crud.adv import RoleCache
-from Utils.util import Validator
+from Utils.util import Validator, get_organization_acronym
 from Utils.config import DevelopmentConfig
 from Utils.security import Security
 import aiohttp
 from Service.gcs_service import GoogleCloudStorage
 from Service.email_service import EmailService, get_email_template
 from aiohttp import ClientTimeout, FormData
-
+from rapidfuzz import process, fuzz
 
 
 rate_limiter = RateLimiter(max_attempts=5, period=60)  # 5 attempts per 60 seconds
@@ -118,62 +123,6 @@ async def log_audit(db: AsyncSession, audit_model, action: str, performed_by: UU
     await db.commit()
 
 
-
-# Email Sending with BackgroundTasks and Retry Logic
-def send_email(to_email: str, subject: str, body: str, background_tasks: BackgroundTasks):
-    def email_task():
-        for attempt in range(3):
-            try:
-                sender_email = "your_email@example.com"  # Replace with your email
-                sender_password = "your_email_password"  # Replace with your email password
-
-                msg = MIMEMultipart()
-                msg['From'] = sender_email
-                msg['To'] = to_email
-                msg['Subject'] = subject
-                msg.attach(MIMEText(body, 'html'))
-
-                with smtplib.SMTP('smtp.example.com', 587) as server:  # Replace with your SMTP server and port
-                    server.starttls()
-                    server.login(sender_email, sender_password)
-                    server.send_message(msg)
-
-                logger.info(f"Email sent to {to_email}")
-                return
-            except SMTPException as e:
-                logger.error(f"Attempt {attempt + 1}: Failed to send email to {to_email}: {str(e)}")
-                if attempt == 2:
-                    raise HTTPException(status_code=500, detail=f"Failed to send email after 3 attempts: {str(e)}")
-
-    background_tasks.add_task(email_task)
-
-
-# Email Sending with AsyncExecutor
-async def send_email_async(to_email: str, subject: str, body: str, db: AsyncSession, audit_model, performed_by: UUID):
-    for attempt in range(3):
-        try:
-            msg = MIMEMultipart()
-            msg["From"] = SMTP_CREDENTIALS["sender_email"]
-            msg["To"] = to_email
-            msg["Subject"] = subject
-            msg.attach(MIMEText(body, "html"))
-
-            with smtplib.SMTP(SMTP_CREDENTIALS["smtp_host"], SMTP_CREDENTIALS["smtp_port"]) as server:
-                server.starttls()
-                server.login(SMTP_CREDENTIALS["sender_email"], SMTP_CREDENTIALS["sender_password"])
-                server.send_message(msg)
-
-            logger.info(f"Email sent to {to_email}")
-            # Log audit for email success
-            await log_audit(db, audit_model, "email_sent", performed_by, "emails", None)
-            return
-        except smtplib.SMTPException as e:
-            logger.error(f"Email attempt {attempt + 1} to {to_email} failed: {str(e)}")
-            if attempt == 2:
-                # Log audit for email failure
-                await log_audit(db, audit_model, "email_failed", performed_by, "emails", None)
-                raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
-
 # Permissions Retrieval from Database
 def get_permissions_from_db(db: AsyncSession, role_name: str) -> Dict[str, bool]:
     """
@@ -195,15 +144,352 @@ def validate_file_structure(data: pd.DataFrame, required_columns: List[str]):
                 detail=f"Missing required column: {column}"
             )
 
+ALLOWED_EXTENSIONS = {"csv", "xlsx", "xls"}
 
-# # Email Validation
-# def is_valid_email(email: str) -> bool:
-#     return re.match(r"[^@]+@[^@]+\.[^@]+", email) is not None
+def allowed_file(filename: str) -> bool:
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# # DOB Validation
-# def is_valid_dob(dob: datetime) -> bool:
-#     today = datetime.today()
-#     return dob < today and (today.year - dob.year) <= 120
+
+# 1) Additional synonyms if your file calls it "date_of_b"
+DATE_SYNONYMS = {
+    "date_of_b": "date_of_birth",
+    "dob": "date_of_birth",
+    "birth_date": "date_of_birth",
+    "birth": "date_of_birth",
+    "Date of Birth": "date_of_birth",
+    "DOB": "date_of_birth",
+    "Birth Date": "date_of_birth",
+    "Birth": "date_of_birth",
+    "date_of_birth": "date_of_birth",
+    "Hire Date": "hire_date",
+    "Hire": "hire_date",
+    "hire_date": "hire_date",
+    "hire_date": "hire date",
+    "start_date": "start date",
+    "start_date": "start_date",
+    "Termination Date": "termination_date",
+    "Termination": "termination_date",
+    "termination_date": "termination_date",
+    "end_date": "end date",
+    "end_date": "end_date",
+    "termination_date": "exit date",
+    "termination_date": "exit_date",
+    "termination_date": "last day",
+    "termination_date": "last_day",
+    "termination_date": "termination date"
+
+    # etc...
+}
+
+
+# --------------------------
+# Mapping Definitions
+# --------------------------
+# Expected field names (all lowercase) for various models.
+model_field_map: Dict[str, set] = {
+    "employee": {"first_name", "middle_name", "last_name", "title", "gender", "date_of_birth",
+                 "marital_status", "email", "contact_info", "hire_date", "termination_date",
+                 "profile_image_path", "staff_id", "last_promotion_date", "employee_type_id",
+                 "department_id", "rank_id", "department", "rank", "employee type", "employment type",
+                 "role", "salary"},
+    "academic_qualification": {"degree", "institution", "year_obtained", "details", "certificate_path"},
+    "professional_qualification": {"qualification_name", "institution", "year_obtained", "details", "license_path"},
+    "employment_history": {"job_title", "company", "start_date", "end_date", "details", "documents_path"},
+    "emergency_contact": {"name", "relation", "phone", "address", "details"},
+    "next_of_kin": {"name", "relation", "phone", "address", "details"},
+    "salary_payment": {"amount", "currency", "payment_date", "payment_method", "transaction_id", "status", "approved_by"},
+    "employee_payment_detail": {"payment_mode", "bank_name", "account_number", "mobile_money_provider", "wallet_number", "additional_info", "is_verified"},
+    "employee_type": {"type_code", "description", "default_criteria"},
+    "department": {"name", "department_head_id", "branch_id"},
+    "rank": {"name", "min_salary", "max_salary", "currency"},
+    # "branch": {"name", "location", "manager_id"},
+    # "role": {"name", "permissions"},
+}
+
+# Mapping from model names to model classes.
+model_classes = {
+    "employee": Employee,
+    "academic_qualification": AcademicQualification,
+    "professional_qualification": ProfessionalQualification,
+    "employment_history": EmploymentHistory,
+    "emergency_contact": EmergencyContact,
+    "next_of_kin": NextOfKin,
+    "salary_payment": SalaryPayment,
+    "employee_payment_detail": EmployeePaymentDetail,
+    "employee_type": EmployeeType,
+    "department": Department,
+    "rank": Rank,
+    # "branch": None,  # Handled separately via process_related_field
+    # "role": None,  # Handled separately via process_related_field
+}
+
+# ------------------------------------------------------------------------------
+# 1. Column Synonyms
+# ------------------------------------------------------------------------------
+# We define synonyms for each concept. Example:
+SYNONYMS_MAP = {
+    "first_name": {"first_name", "first", "fname", "first name", "firstname", "Given Name", "Given Name (First Name)", "given name", "givenname"},
+    "middle_name": {"middle_name", "middle", "mname", "middle name", "middlename", "Middle Name", "Middle Name (Middle Name)", "middle name"},
+    "last_name": {"last_name", "last", "lname", "last name", "lastname", "Family Name", "Surname", "Surname (Family Name)", "surname", "family name", "familyname"},
+    "title": {"title", "salutation", "prefix", "name prefix", "name prefix (title)", "name prefix (salutation)", "name prefix (prefix)"},
+    "department": {"department", "dept", "division", "section", "unit", "department name", "department name (dept)", "department name (division)", "department name (section)", "department name (unit)"},
+    "role": {"role", "job role", "job", "position", "post", "system role", "job description", "job title", "job title (role)", "job role (role)", "job role (job)", "job title (job)", "job description (role)", "job description (job)", "job title (job title)", "job role (job role)", "job description (job description)"},
+    "rank": {"rank", "grade", "level", "job level", "job grade", "job level (grade)", "job grade (level)", "job grade (grade)", "job level (level)"},
+    "employee_type": {"employee type", "employment type", "emp type", "type of employment", "type", "employment type (type)", "employment type (employee type)", "employment type (employment type)", "employment type (emp type)", "employment type (type of employment)"},
+    "branch": {"branch", "location", "site", "office", "workplace", "branch name", "branch location", "branch location (site)", "branch location (office)", "branch location (workplace)", "office location", "office location (site)", "office location (branch)", "office location (workplace)", "workplace location", "workplace location (site)", "workplace location (branch)", "workplace location (office)"},
+    # For academic qualifications:
+    "degree": {"degree", "Academic_Degree", "Academic Degree", "academic_qualification", "academic qualification", "Highest Degree", "Highest Degree (Academic Degree)", "Highest Degree (qualification)", "Highest Degree (Highest Degree)"},
+    "institution": {"institution", "school", "university", "college", "Academic_Institution", "Academic Institution", "school name", "school name (institution)", "school name (school)", "school name (university)", "school name (college)", "school name (Academic Institution)", "school name (Academic_Institution)", "Certification Institution", },
+    # For professional qualifications:
+    "qualification_name": {"qualification_name", "Professional Certification", "professional_qualification", "professional qualification", "Certification Name", "Certification Name (qualification_name)", "Certification Name (Professional Certification)", "Certification Name (professional_qualification)"},
+    #For graduation year for both academic and professional qualifications
+    "year_obtained": {"year_obtained", "year", "graduation year", "years_of_experience", "year_of_experience" , "graduation date (year)", "graduation_date (graduation year)", "graduation year (graduation year)", "year obtained", "year obtained (year)", "year obtained (graduation year)", "year obtained (graduation year)"},
+    # For employment history:
+    "job_title": {"job_title", "job title", "position", "designation"},
+    "start_date": {"start_date"},
+    "end_date": {"end_date"},
+    # For emergency contacts and next of kin, "name" is already generic.
+    "name": {"name", "full name", "Full Name"},
+    "relation": {"relation", "relationship", "kinship", "relation to employee", "relationship to employee"},
+    "address": {"address", "location", "residence", "home address", "contact address", "address (location)", "address (residence)", "address (home address)", "address (contact address)"},
+    "phone": {"phone", "contact_number", "mobile", "cell", "telephone", "phone number", "contact number", "mobile number", "cell number", "telephone number"},
+    "company": {"company", "employer", "organization", "company name", "employer name", "organization name"},
+    # For NextOfKin and EmergencyContact:
+    "phone": {"phone", "contact_number", "mobile", "cell", "telephone"},
+    
+}
+
+
+
+# --- Helper: Normalize Column Name ---
+def normalize_column_name(col_name: str) -> str:
+    """
+    Lowercase, trim, and remove non-alphanumeric characters (except space).
+    """
+    col_name = col_name.strip().lower()
+    col_name = re.sub(r'[^a-z0-9\s]', '', col_name)
+    col_name = re.sub(r'\s+', ' ', col_name)
+    return col_name
+
+# --- Helper: Get Flat List of Synonyms ---
+def get_flat_synonyms():
+    flat = []
+    for synonyms in SYNONYMS_MAP.values():
+        for s in synonyms:
+            flat.append(normalize_column_name(s))
+    
+    # print("flat: ", flat)
+    return flat
+
+FLAT_SYNONYMS = get_flat_synonyms()
+
+# --- Helper: Fuzzy Matching for Column Names ---
+def find_standard_concept(col_name: str, threshold: int = 85) -> str:
+    """
+    Normalize the given column name and return a canonical concept.
+    Steps:
+      1. Normalize the name.
+      2. Check DATE_SYNONYMS.
+      3. Fuzzy-match using RapidFuzz against our flat synonyms.
+      4. As fallback, if the normalized name exactly matches an expected employee field, use that.
+    """
+    norm = normalize_column_name(col_name)
+    if norm in DATE_SYNONYMS:
+        return DATE_SYNONYMS[norm]
+    best, score, _ = process.extractOne(norm, FLAT_SYNONYMS, scorer=fuzz.ratio)
+    if best and score >= threshold:
+        for concept, synonyms in SYNONYMS_MAP.items():
+            norm_syns = {normalize_column_name(s) for s in synonyms}
+            if best in norm_syns:
+                return concept
+    for field in model_field_map["employee"]:
+        if normalize_column_name(field) == norm:
+            # print("\n\nreturned stanadardized flattened column name: ", field)
+            return field
+    # print("\n\nreturned stanadardized normalized column name: ", norm)
+    return norm
+
+
+# ------------------------------------------------------------------------------
+# 2. Convert Excel Numeric Date to Python date
+# ------------------------------------------------------------------------------
+def excel_date_to_datetime(excel_date: float):
+    """Convert an Excel float date to a Python date, if possible."""
+    # Excel "serial" date starts at 1899-12-30
+    try:
+        base_date = datetime(1899, 12, 30)
+        delta = timedelta(days=float(excel_date))
+        return (base_date + delta).date()
+    except:
+        return excel_date
+
+
+def excel_date_to_date(value) -> date:
+    """
+    Convert an Excel serial date (either numeric or a string that represents a number)
+    to a Python date object.
+    Excel serial dates start at 1899-12-30.
+    """
+    try:
+        # If value is numeric or a numeric string, convert to float
+        numeric_value = float(value)
+        base_date = datetime(1899, 12, 30)
+        dt = base_date + timedelta(days=numeric_value)
+        return dt.date()
+    except Exception:
+        # If conversion fails, return the original value
+        return value
+
+def parse_date_value(value):
+    """
+    Attempt to convert a value to a Python date.
+    - If value is numeric (or a numeric string), treat it as an Excel serial date.
+    - If value is a string containing '/', assume "mm/dd/yyyy" format.
+    - If value is already in "yyyy-mm-dd" or a date/datetime object, convert as needed.
+    Otherwise, return the original value.
+    """
+    try:
+        # If already a date/datetime, return the date.
+        if isinstance(value, (datetime, date)):
+            return value if isinstance(value, date) else value.date()
+        
+        # If already date/datetime, just return
+        if isinstance(value, (date, datetime)):
+            return value if isinstance(value, date) else value.date()
+        
+        # Try converting a numeric value or numeric string (Excel serial)
+        try:
+            numeric_val = float(value)
+            # Excel serial dates start at 1899-12-30 (with Excel's leap-year bug handled implicitly)
+            base_date = datetime(1899, 12, 30)
+            dt = base_date + timedelta(days=numeric_val)
+            return dt.date()
+        except Exception:
+            pass
+        
+        # If value contains '/', assume "mm/dd/yyyy"
+        if isinstance(value, str) and "/" in value:
+            try:
+                dt = datetime.strptime(value.strip(), "%m/%d/%Y")
+                return dt.date()
+            except Exception:
+                pass
+        
+        # Otherwise, if value contains '-', assume "yyyy-mm-dd"
+        if isinstance(value, str) and "-" in value:
+            try:
+                dt = datetime.strptime(value.strip(), "%Y-%m-%d")
+                return dt.date()
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return value
+# ------------------------------------------------------------------------------
+# 3. Sanitize row data (replace NaN with None)
+# ------------------------------------------------------------------------------
+def sanitize_value(value):
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    return value
+
+def sanitize_row_data(row_data: dict) -> dict:
+    sanitized = {}
+    for key, value in row_data.items():
+        if isinstance(value, dict):
+            sanitized[key] = sanitize_row_data(value)
+        elif isinstance(value, list):
+            sanitized[key] = [
+                sanitize_row_data(item) if isinstance(item, dict) else sanitize_value(item) 
+                for item in value
+            ]
+        else:
+            sanitized[key] = sanitize_value(value)
+    return sanitized
+
+
+
+# -----------------------------------------------------------------------------
+# Field Synonyms Mapping
+# -----------------------------------------------------------------------------
+# This mapping converts UI-provided keys (which may be labels in lowercase)
+# into the canonical field names used in the Employee model.
+FIELD_SYNONYMS = {
+    "first name": "first_name",
+    "firstname": "first_name",
+    "firstName": "first_name",
+    "middle name": "middle_name",
+    "middlename": "middle_name",
+    "last name": "last_name",
+    "lastname": "last_name",
+    "surname": "last_name",
+    "title": "title",
+    "sex": "gender",
+    "gender": "gender",
+    "date of birth": "date_of_birth",
+    "dob": "date_of_birth",
+    "marital status": "marital_status",
+    "email": "email",
+    "contact": "contact_info",
+    "phone": "contact_info",
+    "hire date": "hire_date",
+    "termination date": "termination_date",
+    "employee type": "employee_type",  # For mapping to the EmployeeType table.
+    "rank": "rank",  # For mapping to the Rank table.
+    "assigned_dept": "department",  # For mapping to the Department table.
+    "assigned_department": "department",  # For mapping to the Department table.
+    "department": "department",  # For mapping to the Department table, i.e. in the case where the manager assigns this new employee to a department or as the head_of_department.
+    "branch": "branch",  # For mapping to the Branch table, i.e. in the case where the manager assigns this new employee as the branch manager.
+    "staff id": "staff_id", # staff_id should be unique for each employee
+    "staffid": "staff_id",
+    "staff_id": "staff_id",
+    "id": "staff_id",
+    "employee id": "staff_id",
+    "employee_id": "staff_id",
+
+
+    # Any extra fields not in the list will remain as-is and later go into custom_data.
+}
+
+# -----------------------------------------------------------------------------
+# Related Model Mapping
+# -----------------------------------------------------------------------------
+# This mapping defines keys for related collections sent from the UI.
+# For example, if the UI sends an "academic_qualifications" key with a list
+# of academic entries, they will be mapped to the AcademicQualification model.
+RELATED_MODEL_MAP = {
+    "academic_qualifications": (
+        AcademicQualification,
+        {"degree", "institution", "year_obtained", "details", "certificate_path"}
+    ),
+    "professional_qualifications": (
+        ProfessionalQualification,
+        {"qualification_name", "institution", "year_obtained", "details", "license_path"}
+    ),
+    "payment_details": (
+        EmployeePaymentDetail,
+        {"payment_mode", "bank_name", "account_number", "mobile_money_provider", "wallet_number", "additional_info", "is_verified"}
+    ),
+    # Add more related mappings as needed.
+}
+
+# -----------------------------------------------------------------------------
+# Helper: Map Fields Using Synonyms
+# -----------------------------------------------------------------------------
+def map_employee_fields(data: dict) -> dict:
+    """
+    Convert UI field keys (which may be synonyms) to canonical Employee model keys.
+    """
+    mapped = {}
+    for key, value in data.items():
+        # Normalize key to lower case and strip whitespace.
+        normalized_key = key.lower().strip()
+        canonical = FIELD_SYNONYMS.get(normalized_key, key)  # use synonym if available
+        mapped[canonical] = value
+    return mapped
 
 # CRUD Functions for User Creation
 class UserCRUD:
@@ -214,13 +500,16 @@ class UserCRUD:
         self.employee_model = employee_model
         self.audit_model = audit_model
         self.role_cache = RoleCache()
+    
+
 
     def hash_password(self, password: str) -> str:
         return pwd_context.hash(password)
 
     async def log_audit(
         self,
-        db: AsyncSession,
+        # db: AsyncSession,
+        db: Session,
         action: str,
         performed_by: Optional[UUID],
         table_name: str,
@@ -233,7 +522,8 @@ class UserCRUD:
             record_id=record_id,
         )
         db.add(audit_entry)
-        await db.commit()  if not None else db.commit()
+        # await db.commit()  if not None else db.commit()
+        db.commit()
     
     def extract_url(self, data_str):
 
@@ -324,7 +614,7 @@ class UserCRUD:
                     except Exception as r:
                         print("err: ", r)
 
-            elif not employee.profile_image_path.strip():
+            elif not employee.profile_image_path:
                 indx = "https://"
 
 
@@ -391,162 +681,917 @@ class UserCRUD:
             raise HTTPException(status_code=500, detail=f"Facial authentication enrollment failed: {str(e)}")
     
 
+        # --------------------------
+    # Helper: Process Related Field
+    # --------------------------
+    def process_related_field(self, db: Session, organization_id: str, value: str, table, lookup_field: str, defaults: dict) -> str:
+        """
+        Query the given table (e.g. Department, Rank, EmployeeType, Role) for a record matching `value`
+        (case-insensitive). If not found, create a new record with provided defaults.
+        Return the record's id as a string.
+        """
+        value = value.strip()
+        obj = db.query(table).filter(
+            getattr(table, lookup_field).ilike(value),
+            table.organization_id == organization_id
+        ).first()
+        if not obj:
+            data = {lookup_field: value, "organization_id": organization_id}
+            data.update(defaults)
+            obj = table(**data)
+            db.add(obj)
+            db.commit()
+            db.refresh(obj)
+        return str(obj.id)
+
+    # --------------------------
+    # Helper: Get Primary Logo URL
+    # --------------------------
+    def get_primary_logo(self, logos: dict) -> str:
+        """Return the first URL from the logos dict if available, else a default."""
+        if logos and isinstance(logos, dict):
+            # Simply return the first value.
+            for key, url in logos.items():
+                if url:
+                    return url
+        return "https://example.com/default-logo.png"
+
+    # --------------------------
+    # Helper: Build Email Template
+    # --------------------------
+    def build_account_email_html(self, row_data: dict, org_acronym: str, logo_url: str, login_href: str, pwd: str) -> str:
+        """
+        Build a dynamic HTML email template for account creation.
+        The logo appears on top responsively, then a personalized salutation, account details, and a styled login button.
+        """
+        title = row_data.get("title") or ""
+        first_name = row_data.get("first_name") or ""
+        last_name = row_data.get("last_name") or ""
+        email = row_data.get("email") or ""
+
+        
+        html_template = f"""
+        <div style="max-width:600px;margin:0 auto;font-family:Arial,sans-serif;">
+        <div style="text-align:center;padding:20px;">
+            <img src="{logo_url}" alt="{org_acronym} Logo" style="max-width:200px; width:100%; height:auto;">
+        </div>
+        <div style="padding:20px;">
+            <h2>{org_acronym} Staff Records System</h2>
+            <p>Dear {title} {first_name} {last_name},</p>
+            <p>Your account has been created successfully. 
+            <br/>Your username is <strong>{email}</strong>.
+            <br/>Your Password is <strong>{pwd}</strong>
+            </p>
+            <p>Please change your password upon your first login.</p>
+            <p>Click on the login button to direct you to the Login Page </p>
+            <div style="text-align:center;margin-top:30px;">
+             <a href="{login_href}" style="display:inline-block;padding:10px 20px;background-color:#007bff;color:#fff;text-decoration:none;border-radius:4px;">Login</a> 
+            </div>
+            <p style="margin-top:30px;">Best regards,<br>{org_acronym} Team</p>
+        </div>
+        </div>
+        """
+        return html_template
+
+    # --------------------------
+    # Helper: Get Default Role (if missing)
+    # --------------------------
+    def get_or_create_default_role(self, db: Session, organization_id: str) -> str:
+        """
+        If no role column is provided, check the organization's roles for a role named "Staff"
+        with default permissions (e.g. view/edit own data only). If not found, create one.
+        Return the role id as a string.
+        """
+        from Models.Tenants.role import Role  # adjust import as needed
+        default_role_name = "Staff"
+        default_permissions = {"view": "own", "edit": "own", "request": ["department head", "HR"]}
+        role_obj = db.query(Role).filter(
+            Role.name.ilike(default_role_name),
+            Role.organization_id == organization_id
+        ).first()
+        if not role_obj:
+            role_obj = Role(name=default_role_name, permissions=default_permissions, organization_id=organization_id)
+            db.add(role_obj)
+            db.commit()
+            db.refresh(role_obj)
+        return str(role_obj.id)
+
+    # ------------------------------------------------------------------------------
+# 7. Excel date converter
+# ------------------------------------------------------------------------------
+    def maybe_convert_excel_date(self, value):
+        """
+        If value is a float/int, interpret it as an Excel date serial and convert to a real date.
+        Otherwise, return as is.
+        """
+        if isinstance(value, (int, float)) and value > 59:  # Excel's leap day bug
+            base_date = datetime(1899, 12, 30)
+            try:
+                dt = base_date + timedelta(days=float(value))
+                return dt.date()
+            except:
+                return value
+        return value
+    
+
+
+
+    # ------------------------------------------------------------------------------
+# 7. Bulk Insert CRUD
+# ------------------------------------------------------------------------------
+  
+
+    def generate_random_string(self, length=6) -> str:
+        chars = string.ascii_letters + string.digits
+        return ''.join(random.choices(chars, k=length))
+
+   
+
+    def bulk_insert_crud(self, organization_id: str, file: UploadFile, background_tasks: BackgroundTasks, db: Session) -> dict:
+        # (1) Validate file extension.
+        if not allowed_file(file.filename):
+            raise HTTPException(status_code=400, detail="Only CSV or Excel files are allowed.")
+
+        # (2) Read file contents.
+        try:
+            contents = file.file.read()
+            file_stream = io.BytesIO(contents)
+            if file.filename.lower().endswith("csv"):
+                df = pd.read_csv(file_stream)
+                sheets = {"default": df}
+            else:
+                sheets = pd.read_excel(file_stream, sheet_name=None)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Error processing file: {str(e)}")
+
+        success_records = []
+        error_records = []
+
+        # (3) Retrieve organization record.
+        org = db.query(Organization).filter(Organization.id == organization_id).first()
+        if not org:
+            raise HTTPException(status_code=404, detail="Organization not found.")
+
+        logo_url = self.get_primary_logo(org.logos or {})
+        org_acronym = get_organization_acronym(org.name)  # Or a function to get acronym.
+        login_href = f"{org.access_url}/signin" if org.access_url else "https://example.com/login"
+
+        # (4) Build an employee_map (lowercase email → employee ID) for linking related sheets.
+        employee_map = {}   # email (lowercase) -> employee_id
+        employee_list = []  # list of employee IDs in processing order
+
+        # (5) Determine processing order: process sheets with highest employee field overlap first.
+        sheet_order = sorted(
+            sheets.items(),
+            key=lambda item: len(set(item[1].columns.str.lower()).intersection(model_field_map["employee"])),
+            reverse=True
+        )
+        # print("\n\nordered sheets: ", sheet_order)
+
+        # ------------- PASS 1: Process Employee Records -------------
+        for sheet_name, df in sheet_order:
+            print(f"\n\nsheet: {sheet_order}\nsheet_name: ", f"{sheet_name}\ncolumns: {df.columns}")
+            sheet_lower = sheet_name.strip().lower()
+            if sheet_lower in {"employee", "employees"} or len(set(df.columns.str.lower()).intersection(model_field_map["employee"])) >= 5:
+                df.columns = [col.strip().lower() for col in df.columns]
+                for index, row in df.iterrows():
+                    row_data = {k: row[k] for k in df.columns}
+                    row_data = sanitize_row_data(row_data)
+                    try:
+                        expected_fields = model_field_map["employee"]
+                        ModelClass = model_classes["employee"]
+                        model_data = {}
+                        extra_data = {}
+                        # Process each column using fuzzy matching.
+                        for col_name, val in row_data.items():
+                            concept = find_standard_concept(col_name)
+                            # Map the concept to an expected field if possible.
+                            for field in expected_fields:
+                                if normalize_column_name(field) == normalize_column_name(concept):
+                                    concept = field
+                                    break
+                            if concept in expected_fields and val is not None:
+                                model_data[concept] = val
+                            else:
+                                if any(x in concept for x in ["address", "phone", "contact", "gps"]):
+                                    extra_data[concept] = val
+                        if extra_data:
+                            model_data["contact_info"] = extra_data
+                        # Convert date fields.
+                        for dcol in ["date_of_birth", "hire_date", "termination_date"]:
+                            if dcol in model_data and model_data[dcol] is not None:
+                                model_data[dcol] = parse_date_value(model_data[dcol])
+                        # Add organization_id.
+                        model_data["organization_id"] = organization_id
+                        salary_value = None
+                        transient_role_id = None
+
+                        # --- Process Branch & Department ---
+                        # Process branch from raw row data (not from model_data)
+                        branch_id = None
+                        branch_key = None
+                        for key in row_data.keys():
+                            if find_standard_concept(key).lower() == "branch":
+                                branch_key = key
+                                break
+                        if branch_key:
+                            branch_val = row_data.get(branch_key)
+                            if branch_val:
+                                branch_val = str(branch_val).strip()
+                                branch_location = str(row_data.get("location", branch_val)).strip()
+                                if org.nature.strip().lower() == "single managed":
+                                    raise HTTPException(
+                                        status_code=400,
+                                        detail=f"Organization '{org.name}' is single managed; branch data is not allowed."
+                                    )
+                                # Import Branch model from your organization module.
+                                from Models.Tenants.organization import Branch
+                                branch_id = self.process_related_field(db, organization_id, branch_val, Branch, "name", {"location": branch_location, "manager_id": None})
+                        # Process department if present in model_data.
+                        if "department" in model_data and model_data["department"]:
+                            dept_val = str(model_data["department"]).strip()
+                            defaults = {"branch_id": branch_id} if branch_id else {}
+                            dept_id = self.process_related_field(db, organization_id, dept_val, Department, "name", defaults)
+                            model_data["department_id"] = dept_id
+                            model_data.pop("department", None)
+
+                        # --- Process Rank ---
+                        if "rank" in model_data and model_data["rank"]:
+                            rank_val = str(model_data["rank"]).strip()
+                            rank_id = self.process_related_field(db, organization_id, rank_val, Rank, "name", {"min_salary": 0, "max_salary": None, "currency": "GHS"})
+                            model_data["rank_id"] = rank_id
+                            model_data.pop("rank", None)
+
+                        # --- Process Employee Type ---
+                        if "employee type" in model_data and model_data["employee type"]:
+                            et_val = str(model_data["employee type"]).strip()
+                            et_id = self.process_related_field(db, organization_id, et_val, EmployeeType, "type_code", {})
+                            model_data["employee_type_id"] = et_id
+                            model_data.pop("employee type", None)
+                        elif "employment type" in model_data and model_data["employment type"]:
+                            et_val = str(model_data["employment type"]).strip()
+                            et_id = self.process_related_field(db, organization_id, et_val, EmployeeType, "type_code", {})
+                            model_data["employee_type_id"] = et_id
+                            model_data.pop("employment type", None)
+
+                        # --- Process Role ---
+                        if "role" in model_data and model_data["role"]:
+                            role_val = str(model_data["role"]).strip()
+                            # Look up role; if not found, create with default permissions if "staff"
+                            existing_role = db.query(Role).filter(
+                                Role.name.ilike(role_val),
+                                Role.organization_id == organization_id
+                            ).first()
+                            if not existing_role:
+                                default_perms = {"view": "own", "edit": "own"} if role_val.lower() == "staff" else {}
+                                new_role = Role(name=role_val, permissions=default_perms, organization_id=organization_id)
+                                db.add(new_role)
+                                db.commit()
+                                db.refresh(new_role)
+                                transient_role_id = str(new_role.id)
+                            else:
+                                transient_role_id = str(existing_role.id)
+                            model_data.pop("role", None)
+                        else:
+                            transient_role_id = self.get_or_create_default_role(db, organization_id)
+
+                        # --- Process Salary ---
+                        if "salary" in model_data and model_data["salary"]:
+                            try:
+                                salary_value = float(model_data["salary"])
+                            except Exception:
+                                salary_value = None
+                            model_data.pop("salary", None)
+
+                        # Generate a random password.
+                        transient_pwd = generate_random_string(6)
+
+                        # Build the Employee record.
+                        record = Employee(**model_data)
+                        if transient_role_id:
+                            setattr(record, "_role_id", transient_role_id)
+                            setattr(record, "_plain_password", transient_pwd)
+                        db.add(record)
+                        db.flush()
+
+                        # # Update employee_map using lowercase email.
+                        # if "email" in model_data and model_data["email"]:
+                        #     employee_map[model_data["email"].lower()] = record.id
+                        # Update employee_map and employee_list.
+                        if "email" in model_data and model_data["email"]:
+                            email_lower = model_data["email"].lower()
+                            employee_map[email_lower] = record.id
+                            employee_list.append(record.id)
+
+                        # Create SalaryPayment record if salary provided.
+                        if salary_value is not None:
+                            sp = SalaryPayment(
+                                employee_id=record.id,
+                                rank_id=model_data.get("rank_id"),
+                                amount=salary_value,
+                                currency="GHS",
+                                payment_date=datetime.utcnow(),
+                                payment_method="Bank Transfer",
+                                transaction_id=''.join(random.choices(string.ascii_letters + string.digits, k=12)),
+                                status="Success"
+                            )
+                            db.add(sp)
+                            db.flush()
+
+                        db.commit()
+                        success_records.append({
+                            "sheet": sheet_name,
+                            "row_index": index,
+                            "model": "employee",
+                            "data": row_data
+                        })
+
+                        # Optionally send email notification.
+                        if "email" in model_data and model_data["email"]:
+                            try:
+                                email_service = EmailService()
+                                email_body = self.build_account_email_html(model_data, org_acronym, logo_url, login_href, transient_pwd)
+                                background_tasks.add_task(
+                                    email_service.send_html_email,
+                                    background_tasks,
+                                    [model_data["email"]],
+                                    "Account Created Successfully",
+                                    email_body
+                                )
+                            except Exception as e_email:
+                                print(f"[WARN] Email notification failed for row {index}: {e_email}")
+
+                        
+
+                    except Exception as e:
+                        db.rollback()
+                        error_records.append({
+                            "sheet": sheet_name,
+                            "row_index": index,
+                            "error": str(e),
+                            "data": row_data
+                        })
+        # print("\n\nemployee_map: ", employee_map)
+        # print("\n\nemployee_list: ", employee_list)
+        # ------------- PASS 2: Process Additional Related Sheets -------------
+        if not employee_map:
+            print("No employee records processed; skipping related sheets.")
+        else:
+            for sheet_name, df in sheets.items():
+                sheet_lower = sheet_name.strip().lower()
+                if sheet_lower in {"employee", "employees"} or len(set(df.columns.str.lower()).intersection(model_field_map["employee"])) >= 5:
+                    continue
+
+                # print("\n\nother sheet: ", sheet_name, "\ncolumns: ", df.columns)
+                df.columns = [col.strip().lower() for col in df.columns]
+                # Determine best matching model by column overlap.
+                model_choice = "dynamic"
+                max_match = 0
+                for mk, fields in model_field_map.items():
+                    overlap = len(set(df.columns).intersection(fields))
+                    if overlap > max_match:
+                        max_match = overlap
+                        model_choice = mk
+
+                for index, row in df.iterrows():
+                    row_data = sanitize_row_data(row.to_dict())
+                    try:
+                        expected_fields = model_field_map.get(model_choice, set())
+                        ModelClass = model_classes.get(model_choice, None)
+                        model_data = {}
+                        for col_name, val in row_data.items():
+                            concept = find_standard_concept(col_name)
+                            if concept in expected_fields and val is not None:
+                                # If this is a date field for the given model, convert it.
+                                # Extend the set below with any additional date fields needed.
+                                if concept in {"start_date", "end_date", "payment_date", "hire_date", "termination_date"}:
+                                    model_data[concept] = parse_date_value(val)
+                                # For numeric fields such as year_obtained, cast to int.
+
+                                elif concept in {"year_obtained", "year_of_experience"} and val is not None:
+                                    try:
+                                        model_data[concept] = int(val)
+                                    except Exception:
+                                        model_data[concept] = None
+                                elif concept in expected_fields and val is not None:
+                                    model_data[concept] = val
+
+
+                        # Link to employee via email if present.
+                        if "email" in row_data and row_data["email"]:
+                            emp_id = employee_map.get(row_data["email"].lower())
+                            if emp_id:
+                                model_data["employee_id"] = emp_id
+                        # Otherwise, if no email column exists, try mapping by row order.
+                        elif "employee_id" not in model_data:
+                            # If the number of rows in this sheet matches the number of employee records processed,
+                            # we assume they align by row order.
+                            if index < len(employee_list):
+                                model_data["employee_id"] = employee_list[index]
+                        # If no employee_id is found, skip this record.
+
+                        # If the model class is found, add organization_id if applicable.
+                        if ModelClass and hasattr(ModelClass, "__table__") and "organization_id" in ModelClass.__table__.columns:
+                            model_data["organization_id"] = organization_id
+                        # If the model class is not found, use the dynamic model.
+                        if ModelClass:
+                            record = ModelClass(**model_data)
+                            db.add(record)
+                            db.flush()
+                        else:
+                            from Models.dynamic_models import EmployeeDynamicData
+                            record = EmployeeDynamicData(
+                                employee_id=model_data.get("employee_id"),
+                                data_category=sheet_name,
+                                data=row_data
+                            )
+                            db.add(record)
+                            db.flush()
+                        db.commit()
+                        success_records.append({
+                            "sheet": sheet_name,
+                            "row_index": index,
+                            "model": model_choice,
+                            "data": row_data
+                        })
+                    except Exception as e:
+                        db.rollback()
+                        error_records.append({
+                            "sheet": sheet_name,
+                            "row_index": index,
+                            "error": str(e),
+                            "data": row_data
+                        })
+
+        # Log errors if any.
+        if error_records:
+            err_log = BulkUploadError(
+                organization_id=organization_id,
+                file_name=file.filename,
+                error_details=error_records
+            )
+            db.add(err_log)
+            db.commit()
+
+        return {
+            "detail": "Bulk upload processed.",
+            "successful_records": success_records,
+            "failed_records": error_records,
+            "message": "Please review the failed records and try manual insertion if necessary."
+        }
+
+
+    # async def create_user(
+    #         self,
+    #     background_tasks: BackgroundTasks,
+    #     db: Session,
+    #     employee_data: dict,
+    #     role_id: UUID,
+    #     organization_id: UUID,
+    #     image_file: UploadFile,
+    #     created_by: Optional[UUID] = None,
+    # ) -> Dict[str, str]:
+    #     """
+    #     Creates a user based on an existing employee record with bio authentication & secure image storage.
+    #     """
+
+    #     # Step 0: **Check if Organization Exists**
+    #     org = db.query(Organization).filter(Organization.id == organization_id).first()
+    #     if not org:
+    #         raise HTTPException(status_code=404, detail="Can't Sign Up User under unknown Organization.")
+
+
+    #     # Step 1: **Check if Employee Exists Based on Email**
+    #     email = employee_data.get("email")
+    #     employee = db.query(Employee).filter(Employee.email == email).first()
+    #     if not employee:
+
+    #         # Step 2: **Check if User Already Exists**
+    #         existing_user = db.query(User).filter(User.email == email).first()
+    #         if existing_user:
+    #             raise HTTPException(status_code=400, detail="User account already exists for this employee.")
+
+            
+    #         # Step 3: **Check if Ro,e ID  Exists**
+    #         findRole = db.query(Role).filter(Role.id == role_id).first()
+    #         if not findRole:
+    #             raise HTTPException(status_code=404, detail="Role Not Found.")
+            
+
+    #         existing_role = db.query(User).filter(User.role_id == role_id).first()
+    #         if existing_role:
+    #             raise HTTPException(status_code=400, detail="Role Already Assigned to Another User")
+            
+            
+    #         # Step 4: **Check for Required Employee Fields**
+    #         required_fields = ["title", "first_name", "last_name", "email"]
+    #         for field in required_fields:
+    #             if not employee_data.get(field):
+    #                 raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+
+
+    #         # Step 5: **Generate Credentials**
+    #         user_name =  f"{employee_data.get('first_name').lower()}{employee_data.get('last_name').lower()}{ Security.generate_random_string(4)}" or  Security.generate_random_string(6)
+    #         password =  Security.generate_random_char(6)
+    #         hashed_password = self.hash_password(password)
+
+            
+                
+    #         orgn = get_organization_acronym(org.name)
+    #         # Step 7: **Upload Image to Google Cloud Storage**
+    #         folder = f"organizations/{orgn}/user_profiles"
+    #         gcs = GoogleCloudStorage(bucket_name=settings.BUCKET_NAME)
+
+
+    #         if image_file:
+    #             logo_files = [{"filename": file.filename, "content": await file.read()} for file in image_file]
+            
+    #             image_url = gcs.upload_to_gcs(files=logo_files, folder=folder) or ""
+
+    #             # Step 6: **Send Image File to External Bio Authentication API**
+    #             # image_bytes = await image_file[0].read()
+    #             # async with aiohttp.ClientSession(timeout=ClientTimeout(total=120)) as session:
+    #             #     form = FormData()
+    #             #     form.add_field("username", user_name)
+    #             #     form.add_field("file", image_bytes, filename="image.jpg", content_type=image_file[0].content_type)
+
+    #             #     try:
+    #             #         logger.info(f"Sending facial auth request for {user_name} to {settings.FACIAL_AUTH_API_URL}")
+    #             #         async with session.post(settings.FACIAL_AUTH_API_URL, data=form) as response:
+    #             #             bio_auth_result = await response.json()
+    #             #             logger.info(f"Response received: {bio_auth_result}")
+    #             #             if response.status != 200:
+    #             #                 raise HTTPException(status_code=500, detail=f"Bio authentication failed: {bio_auth_result}")
+                            
+    #             #             if response.status == 502:
+    #             #                 logger.info(f"Response received: {response.status}: \nMeans the issue has to do with the external api itself not from the call.")
+    #             #                 print(f"Response received: {response.status}: \nMeans the issue has to do with the external api itself not from the call.")
+    #             #     except asyncio.TimeoutError:
+    #             #         logger.error(f"Facial authentication timeout for {user_name}")
+    #             #         raise HTTPException(status_code=504, detail="Facial authentication service timeout. Please try again.")
+
+            
+    #         # Step 8: **Create Employee Record**
+    #         employee_record = Employee(
+    #             first_name=employee_data["first_name"],
+    #             middle_name=employee_data.get("middle_name"),
+    #             last_name=employee_data["last_name"],
+    #             title=employee_data.get("title", "Other"),
+    #             gender=employee_data.get("gender", "Other"),
+    #             date_of_birth=employee_data["date_of_birth"],
+    #             marital_status=employee_data.get("marital_status", "Other"),
+    #             email=email,
+    #             contact_info=json.dumps(employee_data.get("contact_info", {})),
+    #             hire_date=employee_data.get("hire_date"),
+    #             termination_date=employee_data.get("termination_date"),
+    #             is_active=True,
+    #             custom_data=json.dumps(employee_data.get("custom_data", {})),
+    #             profile_image_path=json.dumps(image_url) if isinstance(image_url, dict) else image_url,
+    #             organization_id=organization_id,
+    #         )
+    #         # Optionally, set a transient attribute for the file listener:
+    #         setattr(employee_record, "_uploaded_by_id", created_by if created_by else None)
+    #         db.add(employee_record)
+    #         db.commit()
+    #         db.refresh(employee_record)
+
+    #         # Log user creation
+    #         # await self.log_audit(db, "CREATE", created_by, "employees" ,employee_record.id)
+
+
+    #         # Step 9: **Create User & Employee Image Paths**
+    #         user_record = User(
+    #         username= user_name,
+    #         email= email,
+    #         hashed_password= hashed_password,
+    #         role_id = role_id,
+    #         organization_id = organization_id,
+    #         is_active = True,
+    #         image_path = json.dumps(image_url) if isinstance(image_url, dict) else image_url,  # Store in User model
+    #         )
+    #         # new_user = User(**user_data)
+    #         db.add(user_record)
+    #         db.commit()
+    #         db.refresh(user_record)
+
+        
+
+    #         # Log user creation
+    #         # self.log_audit(db, "CREATE", created_by, "users" ,user_record.id)
+
+    #         email_service = EmailService()  # Instantiate the email service
+    #         # Send email with credentials
+    #         email_body = get_email_template(user_name, password, org.access_url, org.name)
+    #         await email_service.send_email(background_tasks, recipients=[email], subject="Account Credentials", html_body=email_body)
+
+        
+
+    #         return {
+    #             "id": str(user_record.id),
+    #             # "id": user_record.id,
+    #             "message": "User created successfully",
+    #             "image_path": image_url,
+    #         }
+    #         # raise HTTPException(status_code=404, detail="Employee record not found. Register employee first.")
+    #     else:
+    #         logger.error(f"\n\nAn Employee with the Email '{employee_data.get('email')}' already exists.")
+    #         raise HTTPException(status_code=404, detail="Email Already Exists.")
+
+    # -----------------------------------------------------------------------------
+# The create_user CRUD Function
+# -----------------------------------------------------------------------------
     async def create_user(
-            self,
+        self,
         background_tasks: BackgroundTasks,
         db: Session,
         employee_data: dict,
         role_id: UUID,
         organization_id: UUID,
-        image_file: List[UploadFile],
+        image_file: UploadFile,
         created_by: Optional[UUID] = None,
-    ) -> Dict[str, str]:
+    ) -> dict:
         """
-        Creates a user based on an existing employee record with bio authentication & secure image storage.
+        Creates a new user (employee) record from dynamic manager-supplied data.
+        
+        Steps:
+        0. Verify Organization exists.
+        1. Ensure no Employee or User with the same email exists.
+        2. Validate required base fields.
+        3. Check that Role exists.
+        4. Generate credentials.
+        5. Map UI keys using FIELD_SYNONYMS.
+        6. Separate base fields from extra keys; merge extras into custom_data.
+        7. Process 'employee_type' (lookup/create in EmployeeType).
+        8. Process 'rank' (lookup in Rank).
+        9. Extract next_of_kin data (expected as list).
+        10. Process additional related data via RELATED_MODEL_MAP.
+        11. Upload profile image.
+        12. Send image file to external Facial Authentication API.
+        13. Create the Employee record.
+        14. Update related records with the new employee_id.
+        15. Create NextOfKin records if provided.
+        16. Create the User record.
+        17. Infer managerial assignment from Role permissions and update Department or Branch accordingly.
+        18. Send email with login credentials.
+        19. Log audit events.
         """
-
-        # Step 0: **Check if Organization Exists**
+        # Step 0: Verify Organization exists.
         org = db.query(Organization).filter(Organization.id == organization_id).first()
         if not org:
-            raise HTTPException(status_code=404, detail="Can't Sign Up User under unknown Organization.")
+            raise HTTPException(status_code=404, detail="Organization not found.")
 
-
-        # Step 1: **Check if Employee Exists Based on Email**
+        # Step 1: Check for existing Employee/User.
         email = employee_data.get("email")
-        employee = db.query(Employee).filter(Employee.email == email).first()
-        if not employee:
+        if not email:
+            raise HTTPException(status_code=400, detail="Email is required.")
+        if db.query(Employee).filter(Employee.email == email).first():
+            raise HTTPException(status_code=400, detail="Employee already exists.")
+        if db.query(User).filter(User.email == email).first():
+            raise HTTPException(status_code=400, detail="User account already exists for this employee.")
 
-            # Step 2: **Check if User Already Exists**
-            existing_user = db.query(User).filter(User.email == email).first()
-            if existing_user:
-                raise HTTPException(status_code=400, detail="User account already exists for this employee.")
+        # Step 2: Validate required base fields.
+        required_fields = {"first_name", "last_name", "email"}
+        missing = [field for field in required_fields if not employee_data.get(field)]
+        if missing:
+            raise HTTPException(status_code=400, detail=f"Missing required fields: {', '.join(missing)}")
 
-            
-            # Step 3: **Check if Ro,e ID  Exists**
-            findRole = db.query(Role).filter(Role.id == role_id).first()
-            if not findRole:
-                raise HTTPException(status_code=404, detail="Role Not Found.")
-            
+        # Step 3: Check that Role exists.
+        role_obj = db.query(Role).filter(Role.id == role_id).first()
+        if not role_obj:
+            raise HTTPException(status_code=404, detail="Role not found.")
 
-            existing_role = db.query(User).filter(User.role_id == role_id).first()
-            if existing_role:
-                raise HTTPException(status_code=400, detail="Role Already Assigned to Another User")
-            
-            
-            # Step 4: **Check for Required Employee Fields**
-            required_fields = ["first_name", "last_name", "date_of_birth", "email"]
-            for field in required_fields:
-                if not employee_data.get(field):
-                    raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
+        # Step 4: Generate credentials.
+        user_name = f"{employee_data.get('first_name').lower()}{employee_data.get('last_name').lower()}{generate_random_string(4)}"
+        password = generate_random_string(6)
+        hashed_password = pwd_context.hash(password)
 
+        # Step 5: Map UI keys.
+        employee_data = map_employee_fields(employee_data)
 
-            # Step 5: **Generate Credentials**
-            user_name =  f"{employee_data.get('first_name').lower()}{employee_data.get('last_name').lower()}{ Security.generate_random_string(4)}" or  Security.generate_random_string(6)
-            password =  Security.generate_random_char(6)
-            hashed_password = self.hash_password(password)
+        # Step 6: Separate base fields from extra fields.
+        base_fields = {"first_name", "middle_name", "last_name", "title", "gender",
+                    "date_of_birth", "marital_status", "email", "contact_info",
+                    "hire_date", "termination_date", "staff_id"}
+        base_employee_data = {k: employee_data[k] for k in employee_data if k in base_fields}
+        extra_fields = {k: employee_data[k] for k in employee_data if k not in base_fields and k not in {"employee_type", "next_of_kin", "rank", "department", "branch", "Role"}}
+        custom_data = employee_data.get("custom_data", {})
+        if isinstance(custom_data, str):
+            try:
+                custom_data = json.loads(custom_data)
+            except Exception:
+                custom_data = {}
+        custom_data.update(extra_fields)
 
-            
-                
+        # Step 7: Process 'employee_type'.
+        employee_type_id = None
+        employee_type_value = employee_data.get("employee_type")
+        if employee_type_value:
+            employee_type_value = employee_type_value.strip()
+            et_obj = db.query(EmployeeType).filter(
+                EmployeeType.type_code.ilike(employee_type_value),
+                EmployeeType.organization_id == organization_id
+            ).first()
+            if not et_obj:
+                et_obj = EmployeeType(
+                    type_code=employee_type_value,
+                    description="",
+                    default_criteria={},
+                    organization_id=organization_id
+                )
+                db.add(et_obj)
+                db.commit()
+                db.refresh(et_obj)
+            employee_type_id = et_obj.id
 
-            # Step 7: **Upload Image to Google Cloud Storage**
-            folder = f"organizations/{org.name}/user_profiles"
+        # Step 8: Process 'rank' if provided.
+        rank_id = None
+        rank_value = employee_data.get("rank")
+        if rank_value:
+            rank_value = rank_value.strip()
+            rank_obj = db.query(Rank).filter(
+                Rank.name.ilike(rank_value),
+                Rank.organization_id == organization_id
+            ).first()
+            if rank_obj:
+                rank_id = rank_obj.id
+            else:
+                # Optionally, create a new Rank record.
+                raise HTTPException(status_code=404, detail="Rank not found.")
+
+        # Step 9: Extract next_of_kin data.
+        next_of_kin_list = employee_data.get("next_of_kin")
+        
+        # Step 10: Process additional related data via RELATED_MODEL_MAP.
+        for related_key, (model_cls, expected_fields) in RELATED_MODEL_MAP.items():
+            if related_key in employee_data:
+                related_entries = employee_data.pop(related_key)
+                if isinstance(related_entries, list):
+                    for entry in related_entries:
+                        filtered_data = {field: entry.get(field) for field in expected_fields if field in entry}
+                        related_record = model_cls(employee_id=None, **filtered_data)
+                        db.add(related_record)
+                    db.commit()
+        
+        # Step 11: Upload Profile Image.
+        image_url = ""
+        if image_file:
+            org_acronym = get_organization_acronym(org.name)
+            folder = f"organizations/{org_acronym}/user_profiles"
             gcs = GoogleCloudStorage(bucket_name=settings.BUCKET_NAME)
+            file_content = await image_file.read()
+            image_url = gcs.upload_to_gcs(files=[{"filename": image_file.filename, "content": file_content}], folder=folder) or ""
 
-
-            if image_file:
-                logo_files = [{"filename": file.filename, "content": await file.read()} for file in image_file]
-            
-                image_url = gcs.upload_to_gcs(files=logo_files, folder=folder) or {}
-
-                # Step 6: **Send Image File to External Bio Authentication API**
-                # image_bytes = await image_file[0].read()
-                # async with aiohttp.ClientSession(timeout=ClientTimeout(total=120)) as session:
-                #     form = FormData()
-                #     form.add_field("username", user_name)
-                #     form.add_field("file", image_bytes, filename="image.jpg", content_type=image_file[0].content_type)
-
-                #     try:
-                #         logger.info(f"Sending facial auth request for {user_name} to {settings.FACIAL_AUTH_API_URL}")
-                #         async with session.post(settings.FACIAL_AUTH_API_URL, data=form) as response:
-                #             bio_auth_result = await response.json()
-                #             logger.info(f"Response received: {bio_auth_result}")
-                #             if response.status != 200:
-                #                 raise HTTPException(status_code=500, detail=f"Bio authentication failed: {bio_auth_result}")
-                            
-                #             if response.status == 502:
-                #                 logger.info(f"Response received: {response.status}: \nMeans the issue has to do with the external api itself not from the call.")
-                #                 print(f"Response received: {response.status}: \nMeans the issue has to do with the external api itself not from the call.")
-                #     except asyncio.TimeoutError:
-                #         logger.error(f"Facial authentication timeout for {user_name}")
-                #         raise HTTPException(status_code=504, detail="Facial authentication service timeout. Please try again.")
-
-            
-            # Step 8: **Create Employee Record**
-            employee_record = Employee(
-                first_name=employee_data["first_name"],
-                middle_name=employee_data.get("middle_name"),
-                last_name=employee_data["last_name"],
-                title=employee_data.get("title", "Other"),
-                gender=employee_data.get("gender", "Other"),
-                date_of_birth=employee_data["date_of_birth"],
-                marital_status=employee_data.get("marital_status", "Other"),
-                email=email,
-                contact_info=json.dumps(employee_data.get("contact_info", {})),
-                hire_date=employee_data.get("hire_date"),
-                termination_date=employee_data.get("termination_date"),
-                is_active=True,
-                custom_data=json.dumps(employee_data.get("custom_data", {})),
-                profile_image_path=json.dumps(image_url),
-                organization_id=organization_id,
-            )
-            db.add(employee_record)
+            # If image_url is a dict, select the first available URL.
+            if isinstance(image_url, dict):
+                image_url = next(iter(image_url.values()), "")
+        
+        # Step 12: Send image file to External Facial Authentication API.
+        # if image_file:
+        #     try:
+        #         await image_file.seek(0)
+        #         image_bytes = await image_file.read()
+        #         timeout = ClientTimeout(total=120)
+        #         async with aiohttp.ClientSession(timeout=timeout) as session:
+        #             form = FormData()
+        #             form.add_field("username", user_name)
+        #             form.add_field("file", image_bytes, filename="image.jpg", content_type=image_file.content_type)
+        #             async with session.post(settings.FACIAL_AUTH_API_URL, data=form) as response:
+        #                 bio_auth_result = await response.json()
+        #                 if response.status != 200:
+        #                     raise HTTPException(status_code=500, detail=f"Bio authentication failed: {bio_auth_result}")
+        #                 if response.status == 502:
+        #                     print("External API returned 502; issue on external side.")
+        #     except asyncio.TimeoutError:
+        #         raise HTTPException(status_code=504, detail="Facial authentication service timeout. Please try again.")
+        #     except Exception as e:
+        #         print(f"Facial authentication error: {e}")
+        
+        # Step 13: Create the Employee record.
+        # IMPORTANT: Remove contact_info from base_employee_data to avoid duplicate keyword argument.
+        base_contact = base_employee_data.pop("contact_info", {})
+        employee_record = Employee(
+            **base_employee_data,
+            # contact_info=json.dumps(base_employee_data.get("contact_info", {})),
+            contact_info=base_contact,  # Pass as a dict directly (for JSONB)
+            custom_data=custom_data if custom_data else None,
+            profile_image_path=image_url,
+            organization_id=organization_id,
+            employee_type_id=employee_type_id,
+            rank_id=rank_id,
+            is_active=True,
+        )
+        if created_by:
+            setattr(employee_record, "_uploaded_by_id", created_by)
+        db.add(employee_record)
+        db.commit()
+        db.refresh(employee_record)
+        
+        # Step 14: Update related records (from RELATED_MODEL_MAP) with the new employee_id.
+        for related_key, (model_cls, _) in RELATED_MODEL_MAP.items():
+            records = db.query(model_cls).filter(model_cls.employee_id == None).all()
+            for rec in records:
+                rec.employee_id = employee_record.id
             db.commit()
-            db.refresh(employee_record)
-
-            # Log user creation
-            # await self.log_audit(db, "CREATE", created_by, "employees" ,employee_record.id)
-
-
-            # Step 9: **Create User & Employee Image Paths**
-            user_record = User(
-            username= user_name,
-            email= email,
-            hashed_password= hashed_password,
-            role_id = role_id,
-            organization_id = organization_id,
-            is_active = True,
-            image_path = json.dumps(image_url),  # Store in User model
-            )
-            # new_user = User(**user_data)
-            db.add(user_record)
+        
+        # Step 15: Process next_of_kin records.
+        if next_of_kin_list and isinstance(next_of_kin_list, list):
+            for kin in next_of_kin_list:
+                nok_record = NextOfKin(
+                    employee_id=employee_record.id,
+                    name=kin.get("name"),
+                    relation=kin.get("relation"),
+                    phone=kin.get("phone"),
+                    address=kin.get("address"),
+                    details=kin.get("details")
+                )
+                db.add(nok_record)
             db.commit()
-            db.refresh(user_record)
-
         
-
-            # Log user creation
-            # self.log_audit(db, "CREATE", created_by, "users" ,user_record.id)
-
-            email_service = EmailService()  # Instantiate the email service
-            # Send email with credentials
-            email_body = get_email_template(user_name, password, org.access_url, org.name)
-            await email_service.send_email(background_tasks, recipients=[email], subject="Account Credentials", html_body=email_body)
-
+        # Step 16: Create the User record.
+        user_record = User(
+            username=user_name,
+            email=email,
+            hashed_password=hashed_password,
+            role_id=role_id,
+            organization_id=organization_id,
+            is_active=True,
+            image_path=image_url,
+        )
+        db.add(user_record)
+        db.commit()
+        db.refresh(user_record)
         
-
-            return {
-                "id": user_record.id,
-                "message": "User created successfully",
-                "image_path": image_url,
-            }
-            # raise HTTPException(status_code=404, detail="Employee record not found. Register employee first.")
-        else:
-            logger.error(f"\n\nAn Employee with the Email '{employee_data.get('email')}' already exists.")
-            raise HTTPException(status_code=404, detail="Email Already Exists.")
-
+        # Step 17: Infer managerial assignment from Role permissions.
+        # Here, we assume Role.permissions is a JSON object that may include keys:
+        # "is_department_head": true or "is_branch_manager": true.
+        permissions = role_obj.permissions or []
+        # If the role implies Head of Department and the UI provided a department assignment:
+        if "department:head:dashboard" in permissions:
+            # We try to get the department assignment from either the "department" key
+            # or from the synonym "assigned_dept".
+            dept_identifier = employee_data.get("department") or employee_data.get("assigned_dept")
+            if dept_identifier:
+                try:
+                    # If the provided identifier is a UUID, use it directly
+                    dept_id = UUID(dept_identifier)
+                except ValueError:
+                    # Otherwise, assume it's a department name.
+                    dept_obj = db.query(Department).filter(Department.name.ilike(dept_identifier), Department.organization_id == organization_id).first()
+                    dept_id = dept_obj.id if dept_obj else None
+                if dept_id:
+                    dept_obj = db.query(Department).filter(Department.id == dept_id).first()
+                    if dept_obj:
+                        dept_obj.department_head_id = employee_record.id
+                        db.commit()
+        # If the role's permissions indicate the employee is a branch manager.
+        if "branch:manager" in permissions:
+            branch_identifier = employee_data.get("branch")
+            if branch_identifier:
+                try:
+                    branch_id = UUID(branch_identifier)
+                except ValueError:
+                    branch_obj = db.query(Branch).filter(Branch.name.ilike(branch_identifier), Branch.organization_id == organization_id).first()
+                    branch_id = branch_obj.id if branch_obj else None
+                if branch_id:
+                    branch_obj = db.query(Branch).filter(Branch.id == branch_id).first()
+                    if branch_obj:
+                        branch_obj.manager_id = employee_record.id
+                        db.commit()
         
+        # Optionally, if the UI sends explicit department/branch IDs, assign them.
+        if "department" in employee_data:
+            try:
+                dept_id = UUID(employee_data["department"])
+                dept_obj = db.query(Department).filter(Department.id == dept_id, Department.organization_id == organization_id).first()
+                if dept_obj:
+                    employee_record.department_id = dept_id
+                    db.commit()
+            except Exception:
+                pass
+        if "branch" in employee_data:
+            try:
+                branch_id = UUID(employee_data["branch"])
+                # Additional branch assignment logic can be added here.
+                db.commit()
+            except Exception:
+                pass
+
+        # Step 18: Send email with login credentials.
+        email_service = EmailService()
+        email_body = get_email_template(user_name, password, org.access_url, org.name)
+        await email_service.send_email(background_tasks, recipients=[email], subject="Account Credentials", html_body=email_body)
         
-    
+        # Step 19: Log audit events.
+        await self.log_audit(db, "CREATE", created_by, "employees", employee_record.id)
+        await self.log_audit(db, "CREATE", created_by, "users", user_record.id)
+        
+        return {
+            "id": str(user_record.id),
+            "message": "User created successfully",
+            "image_path": image_url,
+        }
+
+
 
     async def update_user(
         self,
@@ -666,7 +1711,11 @@ class UserCRUD:
 
         # ✅ **Send Email Notification**
         email_service = EmailService()
-        email_body = f"Hello {user.username},\n\nYour account details have been successfully updated.\n\nRegards,\nTeam"
+
+        email_body = email_service.get_update_notification_template(
+            username=user.username,
+            organization=organization,
+        )
         background_tasks.add_task(email_service.send_email, recipients=[user.email], subject="Account Update", html_body=email_body)
 
         return {"message": "User updated successfully."}
@@ -717,527 +1766,527 @@ class UserCRUD:
             "dashboard_data": user.organization.dashboards,
             "settings_name": user.organization.settings,
         }
-        
-
-
-    async def create_ceo_account(
-        self,
-        db: AsyncSession,
-        organization_data: OrganizationCreateSchema,
-        background_tasks: BackgroundTasks,
-    ) -> Dict[str, str]:
-        """
-        Creates an organization, CEO role, and CEO user account.
-        Automatically sends an email with username and password.
-        """
-        try:
-            # Step 1: Create Organization
-            organization = self.org_model(**organization_data.dict())
-            db.add(organization)
-            await db.commit()
-            await db.refresh(organization)
-
-            # Step 2: Create CEO Role
-            permissions = get_permissions_from_db(db, "CEO")
-            # role_data = {
-            #     "name": "CEO",
-            #     "permissions": permissions,
-            #     "organization_id": organization.id,
-            # }
-              # Step 2: Create CEO Role
-            role_data = await self.role_cache.get_or_create_role(
-                db, self.role_model, "CEO", permissions, organization.id
-            )
-            role = self.role_model(**role_data)
-            db.add(role)
-            await db.commit()
-            await db.refresh(role)
-
-            # Step 3: Create CEO User
-            username = generate_random_string(USERNAME_LENGTH)
-            password = generate_random_string(PASSWORD_LENGTH)
-            hashed_password = self.hash_password(password)
-
-            user_data = {
-                "username": username,
-                "email": organization_data.email,
-                "hashed_password": hashed_password,
-                "role_id": role.id,
-                "organization_id": organization.id,
-                "is_active": True,
-            }
-            user = self.user_model(**user_data)
-            db.add(user)
-            await db.commit()
-            await db.refresh(user)
-
-            # Step 4: Send Email to CEO
-            email_body = (
-                f"<h1>Welcome to the System!</h1>"
-                f"<p>Your account has been created with the following details:</p>"
-                f"<ul><li>Username: {username}</li><li>Password: {password}</li></ul>"
-                f"<p>Please log in and change your password immediately.</p>"
-            )
-            # send_email(
-            #     to_email=organization_data.email,
-            #     subject="Your Account Details",
-            #     body=email_body,
-            #     background_tasks=background_tasks,
-            # )
-
-            background_tasks.add_task(
-                send_email_async, organization_data.email, "Your Account Details", email_body, db, self.audit_model, user.id
-            )
-
-            # # Log Audit
-            # await self.log_audit(db, "create_ceo_account", user.id, "users", user.id)
-
-            # Log Audit
-            await log_audit(db, self.audit_model, "create_ceo_account", user.id, "users", user.id)
-
-            return {"message": "CEO account created successfully.", "username": username, "password": password}
-
-        except Exception as e:
-            await db.rollback()
-            logger.error(f"Failed to create CEO account: {str(e)}")
-            raise HTTPException(
-                status_code=500, detail=f"Failed to create CEO account: {str(e)}"
-            )
-
-    async def create_employee_user(
-        self,
-        db: AsyncSession,
-        employee_data: EmployeeCreateSchema,
-        performed_by: Optional[UUID],
-        background_tasks: BackgroundTasks,
-    ) -> Dict[str, str]:
-        """
-        Creates a user account for an existing employee.
-        Automatically sends an email with username and password.
-        """
-        try:
-            # Fetch Employee Details
-            employee = (
-                await db.query(self.employee_model)
-                .filter(self.employee_model.id == employee_data.employee_id)
-                .first()
-            )
-            if not employee:
-                raise HTTPException(status_code=404, detail="Employee not found")
-
-            # Check if User Already Exists
-            existing_user = (
-                await db.query(self.user_model)
-                .filter(self.user_model.email == employee.email)
-                .first()
-            )
-            if existing_user:
-                raise HTTPException(
-                    status_code=400,
-                    detail="User account already exists for this employee",
-                )
-
-            # Generate Username and Password
-            username = generate_random_string(USERNAME_LENGTH)
-            password = generate_random_string(PASSWORD_LENGTH)
-            hashed_password = self.hash_password(password)
-
-            # Create User Account
-            user_data = {
-                "username": username,
-                "email": employee.email,
-                "hashed_password": hashed_password,
-                "role_id": employee.role_id,
-                "organization_id": employee.organization_id,
-                "is_active": True,
-            }
-            user = self.user_model(**user_data)
-            db.add(user)
-            await db.commit()
-            await db.refresh(user)
-
-            # Send Email to Employee
-            email_body = (
-                f"<h1>Your Account Details</h1>"
-                f"<p>Your account has been created with the following details:</p>"
-                f"<ul><li>Username: {username}</li><li>Password: {password}</li></ul>"
-                f"<p>Please log in and change your password immediately.</p>"
-            )
-            # send_email(
-            #     to_email=employee.email,
-            #     subject="Your Account Details",
-            #     body=email_body,
-            #     background_tasks=background_tasks,
-            # )
-
-            background_tasks.add_task(
-                send_email_async, employee.email, "Your Account Details", email_body, db, self.audit_model, user.id
-            )
-
-            # Log Audit
-            # await self.log_audit(db, "create_employee_user", performed_by, "users", user.id)
-
-            # Log Audit
-            await log_audit(db, self.audit_model, "create_employee_user_account", performed_by, "users", user.id)
-
-
-            return {"message": "Employee account created successfully.", "username": username, "password": password}
-
-        except Exception as e:
-            await db.rollback()
-            logger.error(f"Failed to create employee user account: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to create employee user account: {str(e)}",
-            )
     
-    async def bulk_create_users_from_file(
-        self,
-        db: AsyncSession,
-        file: UploadFile,
-        current_user: Dict,
-        background_tasks: BackgroundTasks,
-    ) -> Dict[str, List[Dict[str, str]]]:
-        """
-        Bulk create user accounts from a file.
-        """
-        if file.content_type not in ["text/csv", "application/vnd.ms-excel"]:
+
+
+async def create_ceo_account(
+    self,
+    db: AsyncSession,
+    organization_data: OrganizationCreateSchema,
+    background_tasks: BackgroundTasks,
+) -> Dict[str, str]:
+    """
+    Creates an organization, CEO role, and CEO user account.
+    Automatically sends an email with username and password.
+    """
+    try:
+        # Step 1: Create Organization
+        organization = self.org_model(**organization_data.dict())
+        db.add(organization)
+        await db.commit()
+        await db.refresh(organization)
+
+        # Step 2: Create CEO Role
+        permissions = get_permissions_from_db(db, "CEO")
+        # role_data = {
+        #     "name": "CEO",
+        #     "permissions": permissions,
+        #     "organization_id": organization.id,
+        # }
+            # Step 2: Create CEO Role
+        role_data = await self.role_cache.get_or_create_role(
+            db, self.role_model, "CEO", permissions, organization.id
+        )
+        role = self.role_model(**role_data)
+        db.add(role)
+        await db.commit()
+        await db.refresh(role)
+
+        # Step 3: Create CEO User
+        username = generate_random_string(USERNAME_LENGTH)
+        password = generate_random_string(PASSWORD_LENGTH)
+        hashed_password = self.hash_password(password)
+
+        user_data = {
+            "username": username,
+            "email": organization_data.email,
+            "hashed_password": hashed_password,
+            "role_id": role.id,
+            "organization_id": organization.id,
+            "is_active": True,
+        }
+        user = self.user_model(**user_data)
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+        # Step 4: Send Email to CEO
+        email_body = (
+            f"<h1>Welcome to the System!</h1>"
+            f"<p>Your account has been created with the following details:</p>"
+            f"<ul><li>Username: {username}</li><li>Password: {password}</li></ul>"
+            f"<p>Please log in and change your password immediately.</p>"
+        )
+        # send_email(
+        #     to_email=organization_data.email,
+        #     subject="Your Account Details",
+        #     body=email_body,
+        #     background_tasks=background_tasks,
+        # )
+
+        background_tasks.add_task(
+            send_email_async, organization_data.email, "Your Account Details", email_body, db, self.audit_model, user.id
+        )
+
+        # # Log Audit
+        # await self.log_audit(db, "create_ceo_account", user.id, "users", user.id)
+
+        # Log Audit
+        await log_audit(db, self.audit_model, "create_ceo_account", user.id, "users", user.id)
+
+        return {"message": "CEO account created successfully.", "username": username, "password": password}
+
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to create CEO account: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to create CEO account: {str(e)}"
+        )
+
+async def create_employee_user(
+    self,
+    db: AsyncSession,
+    employee_data: EmployeeCreateSchema,
+    performed_by: Optional[UUID],
+    background_tasks: BackgroundTasks,
+) -> Dict[str, str]:
+    """
+    Creates a user account for an existing employee.
+    Automatically sends an email with username and password.
+    """
+    try:
+        # Fetch Employee Details
+        employee = (
+            await db.query(self.employee_model)
+            .filter(self.employee_model.id == employee_data.employee_id)
+            .first()
+        )
+        if not employee:
+            raise HTTPException(status_code=404, detail="Employee not found")
+
+        # Check if User Already Exists
+        existing_user = (
+            await db.query(self.user_model)
+            .filter(self.user_model.email == employee.email)
+            .first()
+        )
+        if existing_user:
             raise HTTPException(
                 status_code=400,
-                detail="Only CSV and Excel files are supported."
+                detail="User account already exists for this employee",
             )
 
-        results = []
-        try:
-            # Load file content
-            content = file.file.read()
-            if file.content_type == "text/csv":
-                data = pd.read_csv(io.StringIO(content.decode("utf-8")))
-            else:
-                data = pd.read_excel(io.BytesIO(content))
+        # Generate Username and Password
+        username = generate_random_string(USERNAME_LENGTH)
+        password = generate_random_string(PASSWORD_LENGTH)
+        hashed_password = self.hash_password(password)
 
-            # Normalize column names
-            data.columns = [col.lower().strip() for col in data.columns]
+        # Create User Account
+        user_data = {
+            "username": username,
+            "email": employee.email,
+            "hashed_password": hashed_password,
+            "role_id": employee.role_id,
+            "organization_id": employee.organization_id,
+            "is_active": True,
+        }
+        user = self.user_model(**user_data)
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
 
-            # Validate file structure
-            validate_file_structure(
-                data,
-                ["name", "dob", "email", "contact", "position"]
-            )
+        # Send Email to Employee
+        email_body = (
+            f"<h1>Your Account Details</h1>"
+            f"<p>Your account has been created with the following details:</p>"
+            f"<ul><li>Username: {username}</li><li>Password: {password}</li></ul>"
+            f"<p>Please log in and change your password immediately.</p>"
+        )
+        # send_email(
+        #     to_email=employee.email,
+        #     subject="Your Account Details",
+        #     body=email_body,
+        #     background_tasks=background_tasks,
+        # )
 
-            # Determine organization ID from the current user's session
-            organization_id = current_user.get("organization_id")
-            if not organization_id:
-                raise HTTPException(
-                    status_code=403,
-                    detail="Current user's organization could not be determined. Ensure you are logged in."
-                )
+        background_tasks.add_task(
+            send_email_async, employee.email, "Your Account Details", email_body, db, self.audit_model, user.id
+        )
 
-            semaphore = asyncio.Semaphore(10)
+        # Log Audit
+        # await self.log_audit(db, "create_employee_user", performed_by, "users", user.id)
 
-            async def process_row(row):
-                async with semaphore:
-                    try:
-                        email = row.get("email")
-                        if not email:
-                            raise ValueError("Email is required but missing.")
-                        
-                        if not email or not Validator.is_valid_email(email):
-                            return { "status": "failed", "error": "Invalid or missing email"}
+        # Log Audit
+        await log_audit(db, self.audit_model, "create_employee_user_account", performed_by, "users", user.id)
 
 
-                        # Check if user already exists
-                        existing_user = await db.query(self.user_model).filter(
-                            self.user_model.email == email
-                        ).first()
-                        if existing_user:
-                            return {"email": email, "status": "failed", "error": "User already exists"}
-                        
-                        dob = row.get("dob")
-                        if not Validator.is_valid_dob(dob):
-                            return { "status": "failed", "error": "Invalid DOB"}
+        return {"message": "Employee account created successfully.", "username": username, "password": password}
 
-                        # Generate username and password
-                        username = generate_random_string(USERNAME_LENGTH)
-                        password = generate_random_string(PASSWORD_LENGTH)
-                        hashed_password = self.hash_password(password)
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to create employee user account: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create employee user account: {str(e)}",
+        )
 
-                        # Determine role and permissions
-                        position = row.get("position", "staff")
-                        job_description = row.get("job_description", DEFAULT_PERMISSIONS.get("staff"))
+async def bulk_create_users_from_file(
+    self,
+    db: AsyncSession,
+    file: UploadFile,
+    current_user: Dict,
+    background_tasks: BackgroundTasks,
+) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Bulk create user accounts from a file.
+    """
+    if file.content_type not in ["text/csv", "application/vnd.ms-excel"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Only CSV and Excel files are supported."
+        )
 
-                        # Check if the role already exists
-                        # role = await db.query(self.role_model).filter(
-                        #     self.role_model.name == position,
-                        #     self.role_model.organization_id == organization_id
-                        # ).first()
+    results = []
+    try:
+        # Load file content
+        content = file.file.read()
+        if file.content_type == "text/csv":
+            data = pd.read_csv(io.StringIO(content.decode("utf-8")))
+        else:
+            data = pd.read_excel(io.BytesIO(content))
 
-                        # Retrieve or create role
-                        role = await self.role_cache.get_or_create_role(
-                            db, self.role_model, position, job_description, organization_id
-                        )
+        # Normalize column names
+        data.columns = [col.lower().strip() for col in data.columns]
 
-                        if not role:
-                            role = self.role_model(
-                                name=position,
-                                permissions=job_description,
-                                organization_id=organization_id,
-                            )
-                            db.add(role)
-                            await db.commit()
-                            await db.refresh(role)
+        # Validate file structure
+        validate_file_structure(
+            data,
+            ["name", "dob", "email", "contact", "position"]
+        )
 
-                        # Create user record
-                        user = self.user_model(
-                            username=username,
-                            email=email,
-                            hashed_password=hashed_password,
-                            role_id=role.id,
-                            organization_id=organization_id,
-                            is_active=True,
-                        )
-                        db.add(user)
-                        await db.commit()
-                        await db.refresh(user)
-
-                        # Send email notification
-                        email_body = (
-                            f"<h1>Your Account Details</h1>"
-                            f"<p>Your account has been created with the following details:</p>"
-                            f"<ul><li>Username: {username}</li><li>Password: {password}</li></ul>"
-                            f"<p>Please log in and change your password immediately.</p>"
-                        )
-                        # send_email(
-                        #     to_email=email,
-                        #     subject="Your Account Details",
-                        #     body=email_body,
-                        #     background_tasks=background_tasks,
-                        # )
-                        background_tasks.add_task(send_email_async, email, "Account Details", email_body, db, self.audit_model, current_user["id"])
-                        # Log audit for successful user creation
-                        await self.log_audit(
-                            db=db,
-                            action="bulk_user_creation_success",
-                            performed_by=current_user["id"],
-                            table_name="users",
-                            record_id=user.id,
-                        )
-
-                        return {"email": email, "status": "success", "username": username, "password": password}
-
-                    except Exception as e:
-                        logger.error(f"Failed to create user for email {row.get('email')}: {str(e)}")
-                        return {"email": row.get("email"), "status": "failed", "error": str(e)}
-
-            # Process rows concurrently
-            tasks = [process_row(row) for _, row in data.iterrows()]
-            results = await asyncio.gather(*tasks)
-
-            return {"message": "Bulk user creation completed.", "results": results}
-
-        except Exception as e:
-            await db.rollback()
-            logger.error(f"Failed to bulk create users: {str(e)}")
+        # Determine organization ID from the current user's session
+        organization_id = current_user.get("organization_id")
+        if not organization_id:
             raise HTTPException(
-                status_code=500,
-                detail=f"Bulk user creation failed: {str(e)}"
+                status_code=403,
+                detail="Current user's organization could not be determined. Ensure you are logged in."
             )
-        
 
-        
-    # async def bulk_create_users_from_file(
-    #     self,
-    #     db: AsyncSession,
-    #     file: UploadFile,
-    #     current_user: Dict,
-    #     background_tasks: BackgroundTasks,
-    # ) -> Dict[str, List[Dict[str, str]]]:
-    #     """
-    #     Bulk create user accounts from a file.
-    #     Extract relevant data and automatically assign missing fields where necessary.
-    #     """
-    #     if file.content_type not in ["text/csv", "application/vnd.ms-excel"]:
-    #         raise HTTPException(
-    #             status_code=400,
-    #             detail="Only CSV and Excel files are supported."
-    #         )
+        semaphore = asyncio.Semaphore(10)
 
-    #     results = []
-    #     try:
-    #         # Load file content
-    #         content = file.file.read()
-    #         if file.content_type == "text/csv":
-    #             data = pd.read_csv(io.StringIO(content.decode("utf-8")))
-    #         else:
-    #             data = pd.read_excel(io.BytesIO(content))
+        async def process_row(row):
+            async with semaphore:
+                try:
+                    email = row.get("email")
+                    if not email:
+                        raise ValueError("Email is required but missing.")
+                    
+                    if not email or not Validator.is_valid_email(email):
+                        return { "status": "failed", "error": "Invalid or missing email"}
 
-    #         # Normalize column names
-    #         data.columns = [col.lower().strip() for col in data.columns]
 
-    #         # Mapping columns to expected fields
-    #         column_map = {
-    #             "name": ["name", "first name", "middle name", "last name", "surname"],
-    #             "dob": ["date of birth", "dob", "d.o.b"],
-    #             "email": ["email", "email address", "e-mail", "e-mail address"],
-    #             "contact": ["contact", "phone", "phone number", "telephone"],
-    #             "position": ["position", "role", "rank"],
-    #             "job_description": ["job description", "job", "tasks"]
-    #         }
+                    # Check if user already exists
+                    existing_user = await db.query(self.user_model).filter(
+                        self.user_model.email == email
+                    ).first()
+                    if existing_user:
+                        return {"email": email, "status": "failed", "error": "User already exists"}
+                    
+                    dob = row.get("dob")
+                    if not Validator.is_valid_dob(dob):
+                        return { "status": "failed", "error": "Invalid DOB"}
 
-    #         def get_column(data: pd.DataFrame, possible_names: List[str]) -> pd.Series:
-    #             """Retrieve the column data for the first matching name in possible_names."""
-    #             for name in possible_names:
-    #                 if name in data.columns:
-    #                     return data[name]
-    #             return pd.Series([None] * len(data), name="unknown")
+                    # Generate username and password
+                    username = generate_random_string(USERNAME_LENGTH)
+                    password = generate_random_string(PASSWORD_LENGTH)
+                    hashed_password = self.hash_password(password)
 
-    #         # Extract columns
-    #         name_col = get_column(data, column_map["name"])
-    #         dob_col = get_column(data, column_map["dob"])
-    #         email_col = get_column(data, column_map["email"])
-    #         contact_col = get_column(data, column_map["contact"])
-    #         position_col = get_column(data, column_map["position"])
-    #         job_description_col = get_column(data, column_map["job_description"])
+                    # Determine role and permissions
+                    position = row.get("position", "staff")
+                    job_description = row.get("job_description", DEFAULT_PERMISSIONS.get("staff"))
 
-    #         # Determine organization ID from the current user's session
-    #         organization_id = current_user.get("organization_id")
-    #         if not organization_id:
-    #             raise HTTPException(
-    #                 status_code=403,
-    #                 detail="Current user's organization could not be determined. Ensure you are logged in."
-    #             )
+                    # Check if the role already exists
+                    # role = await db.query(self.role_model).filter(
+                    #     self.role_model.name == position,
+                    #     self.role_model.organization_id == organization_id
+                    # ).first()
 
-    #         # Iterate through rows and create users
-    #         for idx, row in data.iterrows():
-    #             try:
-    #                 email = email_col.iloc[idx]
-    #                 if not email:
-    #                     raise ValueError("Email is required but missing.")
+                    # Retrieve or create role
+                    role = await self.role_cache.get_or_create_role(
+                        db, self.role_model, position, job_description, organization_id
+                    )
 
-    #                 # Check if user already exists
-    #                 existing_user = await db.query(self.user_model).filter(
-    #                     self.user_model.email == email
-    #                 ).first()
-    #                 if existing_user:
-    #                     results.append(
-    #                         {
-    #                             "email": email,
-    #                             "status": "failed",
-    #                             "error": "User already exists",
-    #                         }
-    #                     )
-    #                     # Log audit for failed user creation
-    #                     await self.log_audit(
-    #                         db=db,
-    #                         action="bulk_user_creation_failed",
-    #                         performed_by=current_user["id"],
-    #                         table_name="users",
-    #                         record_id=None,
-    #                     )
-    #                     continue
+                    if not role:
+                        role = self.role_model(
+                            name=position,
+                            permissions=job_description,
+                            organization_id=organization_id,
+                        )
+                        db.add(role)
+                        await db.commit()
+                        await db.refresh(role)
 
-    #                 # Generate username and password
-    #                 username = generate_random_string(USERNAME_LENGTH)
-    #                 password = generate_random_string(PASSWORD_LENGTH)
-    #                 hashed_password = self.hash_password(password)
+                    # Create user record
+                    user = self.user_model(
+                        username=username,
+                        email=email,
+                        hashed_password=hashed_password,
+                        role_id=role.id,
+                        organization_id=organization_id,
+                        is_active=True,
+                    )
+                    db.add(user)
+                    await db.commit()
+                    await db.refresh(user)
 
-    #                 # Determine role and permissions
-    #                 position = position_col.iloc[idx] or "staff"
-    #                 job_description = job_description_col.iloc[idx]
+                    # Send email notification
+                    email_body = (
+                        f"<h1>Your Account Details</h1>"
+                        f"<p>Your account has been created with the following details:</p>"
+                        f"<ul><li>Username: {username}</li><li>Password: {password}</li></ul>"
+                        f"<p>Please log in and change your password immediately.</p>"
+                    )
+                    # send_email(
+                    #     to_email=email,
+                    #     subject="Your Account Details",
+                    #     body=email_body,
+                    #     background_tasks=background_tasks,
+                    # )
+                    background_tasks.add_task(send_email_async, email, "Account Details", email_body, db, self.audit_model, current_user["id"])
+                    # Log audit for successful user creation
+                    await self.log_audit(
+                        db=db,
+                        action="bulk_user_creation_success",
+                        performed_by=current_user["id"],
+                        table_name="users",
+                        record_id=user.id,
+                    )
 
-    #                 # Check if the role already exists
-    #                 role = await db.query(self.role_model).filter(
-    #                     self.role_model.name == position,
-    #                     self.role_model.organization_id == organization_id
-    #                 ).first()
+                    return {"email": email, "status": "success", "username": username, "password": password}
 
-    #                 if not role:
-    #                     # Insert role with default permissions if it doesn't exist
-    #                     role_permissions = job_description or {
-    #                         "create_task": True,
-    #                         "view_task": True,
-    #                         "update_task": False,
-    #                         "delete_task": False,
-    #                     }
+                except Exception as e:
+                    logger.error(f"Failed to create user for email {row.get('email')}: {str(e)}")
+                    return {"email": row.get("email"), "status": "failed", "error": str(e)}
 
-    #                     role_data = {
-    #                         "name": position,
-    #                         "permissions": role_permissions,
-    #                         "organization_id": organization_id,
-    #                     }
-    #                     role = self.role_model(**role_data)
-    #                     db.add(role)
-    #                     await db.commit()
-    #                     await db.refresh(role)
+        # Process rows concurrently
+        tasks = [process_row(row) for _, row in data.iterrows()]
+        results = await asyncio.gather(*tasks)
 
-    #                 # Create user record
-    #                 user_data = {
-    #                     "username": username,
-    #                     "email": email,
-    #                     "hashed_password": hashed_password,
-    #                     "role_id": role.id,
-    #                     "organization_id": organization_id,
-    #                     "is_active": True,
-    #                 }
-    #                 user = self.user_model(**user_data)
-    #                 db.add(user)
-    #                 await db.commit()
-    #                 await db.refresh(user)
+        return {"message": "Bulk user creation completed.", "results": results}
 
-    #                 # Send email notification
-    #                 email_body = (
-    #                     f"<h1>Your Account Details</h1>"
-    #                     f"<p>Your account has been created with the following details:</p>"
-    #                     f"<ul><li>Username: {username}</li><li>Password: {password}</li></ul>"
-    #                     f"<p>Please log in and change your password immediately.</p>"
-    #                 )
-    #                 send_email(to_email=email, subject="Your Account Details", body=email_body, background_tasks=background_tasks)
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to bulk create users: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Bulk user creation failed: {str(e)}"
+        )
+    
 
-    #                 # Append success result
-    #                 results.append(
-    #                     {
-    #                         "email": email,
-    #                         "status": "success",
-    #                         "username": username,
-    #                         "password": password,
-    #                     }
-    #                 )
+    
+# async def bulk_create_users_from_file(
+#     self,
+#     db: AsyncSession,
+#     file: UploadFile,
+#     current_user: Dict,
+#     background_tasks: BackgroundTasks,
+# ) -> Dict[str, List[Dict[str, str]]]:
+#     """
+#     Bulk create user accounts from a file.
+#     Extract relevant data and automatically assign missing fields where necessary.
+#     """
+#     if file.content_type not in ["text/csv", "application/vnd.ms-excel"]:
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Only CSV and Excel files are supported."
+#         )
 
-    #                 # Log audit for successful user creation
-    #                 await self.log_audit(
-    #                     db=db,
-    #                     action="bulk_user_creation_success",
-    #                     performed_by=current_user["id"],
-    #                     table_name="users",
-    #                     record_id=user.id,
-    #                 )
+#     results = []
+#     try:
+#         # Load file content
+#         content = file.file.read()
+#         if file.content_type == "text/csv":
+#             data = pd.read_csv(io.StringIO(content.decode("utf-8")))
+#         else:
+#             data = pd.read_excel(io.BytesIO(content))
 
-    #             except Exception as e:
-    #                 logger.error(f"Failed to create user for email {email}: {str(e)}")
-    #                 results.append(
-    #                     {
-    #                         "email": email,
-    #                         "status": "failed",
-    #                         "error": str(e),
-    #                     }
-    #                 )
-    #                 # Log audit for failed user creation
-    #                 await self.log_audit(
-    #                     db=db,
-    #                     action="bulk_user_creation_failed",
-    #                     performed_by=current_user["id"],
-    #                     table_name="users",
-    #                     record_id=None,
-    #                 )
+#         # Normalize column names
+#         data.columns = [col.lower().strip() for col in data.columns]
 
-    #         return {"message": "Bulk user creation completed.", "results": results}
+#         # Mapping columns to expected fields
+#         column_map = {
+#             "name": ["name", "first name", "middle name", "last name", "surname"],
+#             "dob": ["date of birth", "dob", "d.o.b"],
+#             "email": ["email", "email address", "e-mail", "e-mail address"],
+#             "contact": ["contact", "phone", "phone number", "telephone"],
+#             "position": ["position", "role", "rank"],
+#             "job_description": ["job description", "job", "tasks"]
+#         }
 
-    #     except Exception as e:
-    #         await db.rollback()
-    #         logger.error(f"Failed to bulk create users: {str(e)}")
-    #         raise HTTPException(
-    #             status_code=500,
-    #             detail=f"Bulk user creation failed: {str(e)}"
-    #         )
+#         def get_column(data: pd.DataFrame, possible_names: List[str]) -> pd.Series:
+#             """Retrieve the column data for the first matching name in possible_names."""
+#             for name in possible_names:
+#                 if name in data.columns:
+#                     return data[name]
+#             return pd.Series([None] * len(data), name="unknown")
+
+#         # Extract columns
+#         name_col = get_column(data, column_map["name"])
+#         dob_col = get_column(data, column_map["dob"])
+#         email_col = get_column(data, column_map["email"])
+#         contact_col = get_column(data, column_map["contact"])
+#         position_col = get_column(data, column_map["position"])
+#         job_description_col = get_column(data, column_map["job_description"])
+
+#         # Determine organization ID from the current user's session
+#         organization_id = current_user.get("organization_id")
+#         if not organization_id:
+#             raise HTTPException(
+#                 status_code=403,
+#                 detail="Current user's organization could not be determined. Ensure you are logged in."
+#             )
+
+#         # Iterate through rows and create users
+#         for idx, row in data.iterrows():
+#             try:
+#                 email = email_col.iloc[idx]
+#                 if not email:
+#                     raise ValueError("Email is required but missing.")
+
+#                 # Check if user already exists
+#                 existing_user = await db.query(self.user_model).filter(
+#                     self.user_model.email == email
+#                 ).first()
+#                 if existing_user:
+#                     results.append(
+#                         {
+#                             "email": email,
+#                             "status": "failed",
+#                             "error": "User already exists",
+#                         }
+#                     )
+#                     # Log audit for failed user creation
+#                     await self.log_audit(
+#                         db=db,
+#                         action="bulk_user_creation_failed",
+#                         performed_by=current_user["id"],
+#                         table_name="users",
+#                         record_id=None,
+#                     )
+#                     continue
+
+#                 # Generate username and password
+#                 username = generate_random_string(USERNAME_LENGTH)
+#                 password = generate_random_string(PASSWORD_LENGTH)
+#                 hashed_password = self.hash_password(password)
+
+#                 # Determine role and permissions
+#                 position = position_col.iloc[idx] or "staff"
+#                 job_description = job_description_col.iloc[idx]
+
+#                 # Check if the role already exists
+#                 role = await db.query(self.role_model).filter(
+#                     self.role_model.name == position,
+#                     self.role_model.organization_id == organization_id
+#                 ).first()
+
+#                 if not role:
+#                     # Insert role with default permissions if it doesn't exist
+#                     role_permissions = job_description or {
+#                         "create_task": True,
+#                         "view_task": True,
+#                         "update_task": False,
+#                         "delete_task": False,
+#                     }
+
+#                     role_data = {
+#                         "name": position,
+#                         "permissions": role_permissions,
+#                         "organization_id": organization_id,
+#                     }
+#                     role = self.role_model(**role_data)
+#                     db.add(role)
+#                     await db.commit()
+#                     await db.refresh(role)
+
+#                 # Create user record
+#                 user_data = {
+#                     "username": username,
+#                     "email": email,
+#                     "hashed_password": hashed_password,
+#                     "role_id": role.id,
+#                     "organization_id": organization_id,
+#                     "is_active": True,
+#                 }
+#                 user = self.user_model(**user_data)
+#                 db.add(user)
+#                 await db.commit()
+#                 await db.refresh(user)
+
+#                 # Send email notification
+#                 email_body = (
+#                     f"<h1>Your Account Details</h1>"
+#                     f"<p>Your account has been created with the following details:</p>"
+#                     f"<ul><li>Username: {username}</li><li>Password: {password}</li></ul>"
+#                     f"<p>Please log in and change your password immediately.</p>"
+#                 )
+#                 send_email(to_email=email, subject="Your Account Details", body=email_body, background_tasks=background_tasks)
+
+#                 # Append success result
+#                 results.append(
+#                     {
+#                         "email": email,
+#                         "status": "success",
+#                         "username": username,
+#                         "password": password,
+#                     }
+#                 )
+
+#                 # Log audit for successful user creation
+#                 await self.log_audit(
+#                     db=db,
+#                     action="bulk_user_creation_success",
+#                     performed_by=current_user["id"],
+#                     table_name="users",
+#                     record_id=user.id,
+#                 )
+
+#             except Exception as e:
+#                 logger.error(f"Failed to create user for email {email}: {str(e)}")
+#                 results.append(
+#                     {
+#                         "email": email,
+#                         "status": "failed",
+#                         "error": str(e),
+#                     }
+#                 )
+#                 # Log audit for failed user creation
+#                 await self.log_audit(
+#                     db=db,
+#                     action="bulk_user_creation_failed",
+#                     performed_by=current_user["id"],
+#                     table_name="users",
+#                     record_id=None,
+#                 )
+
+#         return {"message": "Bulk user creation completed.", "results": results}
+
+#     except Exception as e:
+#         await db.rollback()
+#         logger.error(f"Failed to bulk create users: {str(e)}")
+#         raise HTTPException(
+#             status_code=500,
+#             detail=f"Bulk user creation failed: {str(e)}"
+#         )
 
 

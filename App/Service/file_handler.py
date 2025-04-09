@@ -9,7 +9,6 @@ from io import BytesIO
 from fastapi.responses import FileResponse
 import shutil
 import logging
-from google.cloud import storage
 import json
 
 

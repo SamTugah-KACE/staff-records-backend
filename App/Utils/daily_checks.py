@@ -9,6 +9,9 @@ from Models.models import Employee, Department, PromotionRequest, Notification
 from Utils.promotion_evaluator import evaluate_promotion_criteria, is_birthday
 import logging
 
+# Import the new log model
+from Models.daily_check_log import DailyCheckLog
+
 
 # APScheduler imports
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -101,8 +104,19 @@ def daily_checks_wrapper():
     """Wrapper to create a DB session and run daily_checks."""
     try:
         with SessionLocal() as db:
+            today = datetime.utcnow().date()
+            # Check if the daily check for today is already logged.
+            log_entry = db.query(DailyCheckLog).filter(DailyCheckLog.check_date == today).first()
+            if log_entry:
+                logger.info("Daily checks already executed for today: %s", today)
+                return
+            # Run the daily checks.
             daily_checks(db)
-        logger.info("Daily checks executed successfully.")
+            # Log today's check to prevent duplicate runs.
+            new_log = DailyCheckLog(check_date=today)
+            db.add(new_log)
+            db.commit()
+        logger.info("Daily checks executed successfully for date: %s", today)
     except Exception as e:
         logger.exception("Error executing daily checks: %s", e)
 

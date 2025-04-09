@@ -5,6 +5,7 @@ from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
 from pydantic import EmailStr
 from jinja2 import Template
 from typing import List, Optional
+from Models.Tenants.organization import Organization
 from Utils.util import get_organization_acronym
 from Utils.email_utils import parse_html_from_template
 from Utils.config import *
@@ -139,6 +140,76 @@ def get_email_template(username: str, password: str, href: str, org_name:str=Non
     <p><strong>Username:</strong> {username}</p>
     <p><strong>Password:</strong> {password}</p>
     <p>Please change your password after logging in for the first time using the link: <a href='{href}'>Login</a></p>
+    """
+
+def build_account_email_html(row_data: dict,  logo_url: str, login_href: str, pwd: str) -> str:
+        """
+        Build a dynamic HTML email template for account creation.
+        The logo appears on top responsively, then a personalized salutation, account details, and a styled login button.
+        """
+        title = row_data.get("title") or ""
+        first_name = row_data.get("first_name") or ""
+        last_name = row_data.get("last_name") or ""
+        email = row_data.get("email") or ""
+        org_name = row_data.get("org_name") or "GI-KACE"
+        
+        org_acronym = get_organization_acronym(org_name)
+
+
+        html_template = f"""
+        <div style="max-width:600px;margin:0 auto;font-family:Arial,sans-serif;">
+        <div style="text-align:center;padding:20px;">
+            <img src="{logo_url}" alt="{org_acronym} Logo" style="max-width:200px; width:100%; height:auto;">
+        </div>
+        <div style="padding:20px;">
+            <h2>{org_acronym} Staff Records System</h2>
+            <p>Dear {title} {first_name} {last_name},</p>
+            <p>Your account has been created successfully. 
+            <br/>Your username is <strong>{email}</strong>.
+            <br/>Your Password is <strong>{pwd}</strong>
+            </p>
+            <p>Please change your password upon your first login.</p>
+        
+            <div style="text-align:center;margin-top:30px;">
+             <a href="{login_href}" style="display:inline-block;padding:10px 20px;background-color:#007bff;color:#fff;text-decoration:none;border-radius:4px;">Login</a> 
+            </div>
+            <p style="margin-top:30px;">Best regards,<br>{org_acronym} Team</p>
+        </div>
+        </div>
+        """
+        return html_template
+
+def get_update_notification_email_template(username: str, organization: Organization) -> str:
+    """
+    Returns an HTML email template for notifying the user about their updated account details.
+    If an organization logo URL is available in organization.logos, it is displayed at the top.
+    """
+    logo_url = ""
+    if organization.logos:
+        try:
+            # Ensure logos is a dict
+            logos = organization.logos if isinstance(organization.logos, dict) else json.loads(organization.logos)
+            # Try "primary" key; if not found, get first value.
+            logo_url = logos.get("primary") or next(iter(logos.values()), "")
+        except Exception:
+            logo_url = ""
+    
+    return f"""
+    <html>
+      <body style="font-family: Arial, sans-serif; color: #333;">
+        <div style="max-width: 600px; margin: auto; border: 1px solid #e0e0e0; padding: 20px;">
+          <div style="text-align: center;">
+            {"<img src='" + logo_url + "' alt='Organization Logo' style='max-height: 100px;'/>" if logo_url else ""}
+          </div>
+          <h2 style="color: #007BFF;">Account Update Notification</h2>
+          <p>Hello {username},</p>
+          <p>Your account details have been updated successfully. If you did not request these changes, please contact your administrator immediately.</p>
+          <p>Regards,<br/>The {organization.name} Team</p>
+          <hr style="border: none; border-top: 1px solid #e0e0e0;" />
+          <p style="font-size: 12px; color: #777;">This email was sent from an automated system. Please do not reply directly.</p>
+        </div>
+      </body>
+    </html>
     """
 
 def account_emergency() -> str:

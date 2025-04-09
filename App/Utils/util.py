@@ -2,6 +2,23 @@ from datetime import datetime
 import re
 from typing import Optional, Set
 
+import pandas as pd
+import math
+
+def sanitize_row_data(row_data: dict) -> dict:
+    """
+    Recursively replace any NaN values in the dictionary with None.
+    """
+    sanitized = {}
+    for key, value in row_data.items():
+        if isinstance(value, dict):
+            sanitized[key] = sanitize_row_data(value)
+        elif isinstance(value, list):
+            sanitized[key] = [sanitize_row_data(item) if isinstance(item, dict) else (None if pd.isna(item) else item) for item in value]
+        else:
+            # Check for NaN (works for both float('nan') and numpy.nan)
+            sanitized[key] = None if pd.isna(value) else value
+    return sanitized
 
 
 def get_organization_acronym(org_name: str, stopwords: Optional[Set[str]] = None) -> str:

@@ -155,6 +155,7 @@ def get_gcs_client():
     # Get the path to the Google Cloud API JSON file from an environment variable
     # Check if the GOOGLE_APPLICATION_CREDENTIALS file exists.
     gcloud_credentials_path = settings.GOOGLE_APPLICATION_CREDENTIALS if hasattr(settings, "GOOGLE_APPLICATION_CREDENTIALS") else None
+    
     # print("path: ", gcloud_credentials_path)
     # print(os.path.exists(gcloud_credentials_path))
     

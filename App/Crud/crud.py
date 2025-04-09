@@ -13,6 +13,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import smtplib
 import logging
+from Service.email_service import build_account_email_html
 from Service.gcs_service import GoogleCloudStorage
 from Utils.config import DevelopmentConfig, get_config
 from email_service import *
@@ -108,7 +109,14 @@ class CRUDBase:
         :param limit: Maximum number of records to return
         :return: List of records
         """
-        return db.query(self.model).offset(skip).limit(limit).all()
+        try:
+            return db.query(self.model).offset(skip).limit(limit).all()
+        except SQLAlchemyError as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Database error occurred: {str(e)}"
+            )
+
 
     def create(
         self, db: Session, obj_in: CreateSchemaType, created_by: Optional[UUID] = None
@@ -400,11 +408,23 @@ class CRUDBase:
                     # Log user creation
                     self.log_audit(db, "CREATE", "users", user_obj.id, created_by or user_obj.id)
 
+                    org_dict = {
+                        "title": employee_data["title"] if "title" in employee_data else "",
+                        "first_name": employee_data["first_name"],
+                        "last_name": employee_data["last_name"],
+                        "email": employee_data["email"],
+                        "org_name": obj_data["name"],
+                    }
                     signin_page = obj_data["access_url"]+"/signin"
                     print("signin page: ", signin_page)
+
+                    logos = obj_data["logos"]
+                    logo = next(iter(logos.values())) if len(logos) > 1 else logos
+
                     email_service = EmailService()  # Instantiate the email service
                     # Send email with credentials
-                    email_body = get_email_template(username, password, signin_page, obj_data['name'] )
+                    email_body = build_account_email_html(org_dict, logo, signin_page, password)
+                    # email_body = get_email_template(username, password, signin_page, obj_data['name'] )
                     await email_service.send_email(background_tasks, recipients=[user_data["email"]], subject="Account Credentials", html_body=email_body)
 
                    # Call External API for Facial Authentication Username Update

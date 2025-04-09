@@ -8,7 +8,29 @@ from datetime import datetime, date
 from enum import Enum
 
 
-
+def convert_old_permissions(old: Dict[str, Any]) -> List[str]:
+    """
+    Converts an old permission dict to a flat list in the new standardized format.
+    Update the conversion_map as needed.
+    For example:
+      { "read": "all", "write": "all", "delete": "all" }
+    becomes:
+      [ "users:create", "users:delete", "reports:generate", "reports:view" ]
+    """
+    # Mapping can be updated in the future as needed.
+    conversion_map = {
+        "read": ["users:create", "users:delete"],
+        "write": ["users:delete"],
+        "delete": ["reports:generate", "reports:view"]
+    }
+    result = []
+    for key, val in old.items():
+        if isinstance(val, str) and val.lower() == "all" and key in conversion_map:
+            result.extend(conversion_map[key])
+        else:
+            # Fallback: simply join key and value with a colon.
+            result.append(f"{key}:{val}")
+    return result
 
 # Enums
 class Gender(str, Enum):
@@ -62,7 +84,13 @@ class BaseSchema(BaseModel):
     updated_by: Optional[UUID]
 
     class Config:
-        orm_mode = True
+        # orm_mode = True
+        # Use from_attributes for Pydantic V2 (replacing orm_mode)
+        from_attributes = True
+        # Ensure that UUID values are serialized as strings.
+        json_encoders = {
+            UUID: lambda v: str(v)
+        }
 
 # Organization Schemas
 class OrganizationCreateSchema(BaseModel):
@@ -80,7 +108,7 @@ class OrganizationCreateSchema(BaseModel):
     employees: Optional[List["EmployeeCreateSchema"]]
     users: Optional[List["UserCreateSchema"]] 
     # dashboard: Optional[List["DashboardCreateSchema"]]
-    settings: Optional[List["SystemSettingCreateSchema"]] 
+    settings: Optional[List["SystemSettingCreateSchema"]] = None
 
     @field_validator("type")
     def validate_type(cls, value):
@@ -112,7 +140,7 @@ class OrganizationSchema(BaseSchema):
 # Role Schemas
 class RoleCreateSchema(BaseModel):
     name: str
-    permissions: Optional[Dict] = {}
+    permissions: Optional[Union[List[str], Dict[str, Any]]] = None
     organization_id: Optional[UUID]
     
 
@@ -121,11 +149,40 @@ class RoleCreateSchema(BaseModel):
         if not value:
             raise ValueError("Role name cannot be empty")
         return value
+    
+    @field_validator("permissions")
+    @classmethod
+    def normalize_permissions(cls, v):
+        if isinstance(v, dict):
+            # Flatten dictionary keys or keys with True values
+            return [key for key, val in v.items() if val is True or val == 1 or val == "1"]
+        elif isinstance(v, list):
+            if not all(isinstance(i, str) for i in v):
+                raise ValueError("All permission list items must be strings")
+            return v
+        elif v is None:
+            return []
+        raise ValueError("Permissions must be either a list of strings or a dictionary")
 
 class RoleSchema(BaseSchema):
     name: str
-    permissions: Optional[Dict]
+    permissions: Optional[List[str]]
     organization_id: Optional[UUID]
+
+    @field_validator("permissions", mode="before")
+    @classmethod
+    def normalize_permissions(cls, value):
+        if isinstance(value, dict):
+            return convert_old_permissions(value)
+        if isinstance(value, list):
+            return value
+        return []
+
+    # class Config:
+    #     from_attributes = True
+    #     json_encoders = {
+    #         UUID: lambda v: str(v)
+    #     }
 
     class Config:
         from_attributes = True
@@ -196,6 +253,8 @@ class UserCreateSchema(BaseModel):
     role_id: Optional[UUID]
     organization_id: Optional[UUID]
     image_path: Optional[str]
+    # If image_path is a dict (for multi file uploads) or a single URL, adjust accordingly:
+    # image_path: Union[str, Dict[str, str]]
     # dashboard: Optional[List["DashboardCreateSchema"]]
 
     # @field_validator("hashed_password")
@@ -211,10 +270,44 @@ class UserSchema(BaseSchema):
     organization_id: UUID
     role_id: Optional[UUID]
     image_path: Optional[str]
+    # If image_path is a dict (for multi file uploads) or a single URL, adjust accordingly:
+    # image_path: Union[str, Dict[str, str]]
     # dashboard: Optional[List["DashboardCreateSchema"]]
 
     class Config:
         from_attributes = True
+
+class CreateUserResponseSchema(BaseModel):
+    id: str  # return UUID as string
+    message: str
+    # If image_path may be a single URL (string) or multiple (dict)
+    image_path: Union[str, Dict[str, str]]
+    # image_path: Optional[str]
+
+    class Config:
+        # from_attributes = True
+        json_encoders = {
+            UUID: lambda v: str(v)
+        }
+
+class GetUserResponseSchema(BaseModel):
+    user: Dict[str, Union[str, dict]]
+    employee: Dict[str, Union[str, dict]]
+    organization: Dict[str, Union[str, dict]]
+
+    class Config:
+        json_encoders = {
+            UUID: lambda v: str(v)
+        }
+
+class UpdateUserResponseSchema(BaseModel):
+    message: str
+    user_id: str
+
+    class Config:
+        json_encoders = {
+            UUID: lambda v: str(v)
+        }
 
 # Tenancy Schemas
 class TenancyCreateSchema(BaseModel):
@@ -296,24 +389,25 @@ class PaymentSchema(BaseSchema):
 # Employee Schemas
 class EmployeeCreateSchema(BaseModel):
     first_name: str
-    middle_name: Optional[str]
+    middle_name: Optional[str] = None
     last_name: str
     title: Optional[str] = Title.other.value
     gender: Optional[str] = Gender.other.value
-    date_of_birth: Optional[date]
+    date_of_birth: Optional[date] = None
     marital_status: Optional[str] = MaritalStatus.other.value
     email: EmailStr
-    contact_info: Optional[Dict]
-    hire_date: Optional[date]
-    termination_date: Optional[date]
+    contact_info: Optional[Dict] = {}
+    hire_date: Optional[date] = None
+    termination_date: Optional[date] = None
     is_active: Optional[bool] = True
-    custom_data: Optional[Dict]
-    profile_image_path: Optional[str]
+    custom_data: Optional[Dict] = {}
+    profile_image_path: Optional[str] = None
     organization_id: UUID
-    rank_id: Optional[UUID]
-    department_id: Optional[UUID]
-    last_promotion_date:Optional[date]
-    employee_type_id:Optional[UUID]
+    rank_id: Optional[UUID] = None
+    department_id: Optional[UUID] = None
+    last_promotion_date:Optional[date] = None
+    staff_id: Optional[str] = None
+    employee_type_id:Optional[UUID] = None
 
 
     @model_validator(mode="before")
@@ -820,3 +914,23 @@ class SalaryPaymentOut(SalaryPaymentBase):
 
     class Config:
         from_attributes = True
+
+
+class DashboardBaseSchema(BaseSchema):
+    dashboard_name: str = Field(..., description="Name of the dashboard view")
+    dashboard_data: Dict[str, Any] = Field(
+        ..., description="Configuration data for the dashboard (JSON)"
+    )
+    access_url: str = Field(..., description="Accessible URL for this dashboard")
+
+class DashboardCreateSchema(DashboardBaseSchema):
+    organization_id: UUID = Field(..., description="The organization this dashboard belongs to")
+    user_id: Optional[UUID] = Field(None, description="Owner user id (optional)")
+
+class DashboardSchema(DashboardBaseSchema):
+    # id: UUID
+    organization_id: UUID
+    user_id: Optional[UUID]
+
+    class Config:
+        orm_mode = True

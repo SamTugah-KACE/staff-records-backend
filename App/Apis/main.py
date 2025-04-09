@@ -127,28 +127,66 @@ async def create_organization_form(
     #     },
     ])),  # JSON string for roles
     employees: Optional[str] = Form(json.dumps([{
-        "first_name": "",
-        "middle_name":"",
-        "last_name": "",
+        "title": "Mr",
+        "first_name": "Sam",
+        "middle_name":"Kwaku",
+        "last_name": "Badu",
         "date_of_birth": "1980-01-01",
         "email": "vboat54@gmail.com",
         "contact_info": {},
         "hire_date": str(current_date),
         "termination_date": str(next_year),
-        "custom_data": {},
+        "custom_data": {
+            "has_previous_name": True,
+            "previous_name": "Sam Kwaku Boateng",
+            "Nationality": "Ghanaian",
+            "National_ID": "GHA123456789",
+        },
+        "staff_id": "1234567890",
         "profile_image_path": "google.com/sam",
         "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-    }])),
+    },
+    # {
+    #     "title": "Mrs",
+    #     "first_name": "Mary",
+    #     "middle_name":"",
+    #     "last_name": "Adwubi",
+    #     "date_of_birth": "1980-01-01",
+    #     "email": "mary@example.com",
+    #     "contact_info": {},
+    #     "hire_date": str(current_date),
+    #     "termination_date": str(next_year),
+    #     "custom_data": {
+    #         "has_previous_name": False,
+    #         "previous_name": "",
+    #         "Nationality": "Ghanaian",
+    #         "National_ID": "GHA987654321",
+    #     },
+    #     "profile_image_path": "google.com/mary",
+    #     "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+
+    # }
+    
+    ])),
     users: Optional[str] = Form(json.dumps([
                 {
                     "username": "",
-                    "email": "kduah54@gmail.com",   
+                    "email": "vboat54@gmail.com",   
                     "hashed_password": "",
                     "role_id": "123e4567-e89b-12d3-a456-426614174000",
                     "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", 
                     "image_path": "google.com/sam"
                     
-                }
+                },
+                # {
+                #      "username": "",
+                #     "email": "mary@example.com",   
+                #     "hashed_password": "",
+                #     "role_id": "123e4567-e89b-12d3-a456-426614174000",
+                #     "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", 
+                #     "image_path": "google.com/mary"
+
+                # }
 
             ])),  # JSON string for users
     settings: Optional[str] = Form(json.dumps([{
@@ -257,27 +295,6 @@ async def create_organization_form(
             background_tasks, db, obj_in=organization_data
         )
 
-
-        # file_entry = FileStorage(
-        #         file_name=logo_urls.keys(),
-        #         file_path=logo_urls,
-        #         uploaded_by_id= organization["users"].id,
-        #         organization_id=organization.id,
-        #         record_id=organization.id,
-        #     )
-        # db.add(file_entry)
-        # db.commit()
-
-        # file_entry = FileStorage(
-        #         file_name=image_urls.keys(),
-        #         file_path=image_urls,
-        #         uploaded_by_id=organization["users"].id,
-        #         organization_id=organization.id,
-        #         record_id="id" in organization["users"],
-        #     )
-        # db.add(file_entry)
-        # db.commit()
-            
 
         return organization
     except json.JSONDecodeError as e:
