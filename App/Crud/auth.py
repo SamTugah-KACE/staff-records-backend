@@ -298,7 +298,7 @@ async def authenticate_user(
     ).first()
     staff_serialized = EmployeeSchema.model_validate(employee) if employee else None
 
-    logger.info(f"User {username} authenticated successfully from IP: {client_ip} using {login_method} method.")
+    logger.info(f"User {username} authenticated successfully from IP: {client_ip} using {login_option} method.")
 
     # 11. Return response.
     return {
