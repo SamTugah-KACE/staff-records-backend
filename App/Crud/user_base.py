@@ -826,6 +826,7 @@ class UserCRUD:
 
         success_records = []
         error_records = []
+        failed_rows_by_sheet: Dict[str, List[int]] = {}
 
         # (3) Retrieve organization record.
         org = db.query(Organization).filter(Organization.id == organization_id).first()
@@ -848,12 +849,14 @@ class UserCRUD:
         )
         # print("\n\nordered sheets: ", sheet_order)
 
+        total_employee_rows = 0
         # ------------- PASS 1: Process Employee Records -------------
         for sheet_name, df in sheet_order:
             print(f"\n\nsheet: {sheet_order}\nsheet_name: ", f"{sheet_name}\ncolumns: {df.columns}")
             sheet_lower = sheet_name.strip().lower()
             if sheet_lower in {"employee", "employees"} or len(set(df.columns.str.lower()).intersection(model_field_map["employee"])) >= 5:
                 df.columns = [col.strip().lower() for col in df.columns]
+                total_employee_rows += len(df)
                 for index, row in df.iterrows():
                     row_data = {k: row[k] for k in df.columns}
                     row_data = sanitize_row_data(row_data)
@@ -1031,6 +1034,7 @@ class UserCRUD:
                             "error": str(e),
                             "data": row_data
                         })
+                        failed_rows_by_sheet.setdefault(sheet_name, []).append(index)
         # print("\n\nemployee_map: ", employee_map)
         # print("\n\nemployee_list: ", employee_list)
         # ------------- PASS 2: Process Additional Related Sheets -------------
@@ -1122,6 +1126,7 @@ class UserCRUD:
                             "error": str(e),
                             "data": row_data
                         })
+                        failed_rows_by_sheet.setdefault(sheet_name, []).append(index)
 
         # Log errors if any.
         if error_records:
@@ -1132,13 +1137,40 @@ class UserCRUD:
             )
             db.add(err_log)
             db.commit()
+        
+        # ---------------------- STEP 6: Compose Return Summary ----------------------
+        total_rows = total_employee_rows
+        success_count = len([r for r in success_records if r["model"] == "employee"])
+        failure_count = len(error_records)
+
+        # Compose message based on results.
+        if success_count and not failure_count:
+            msg = "Registered users should check their emails for access to the system."
+        elif success_count and failure_count:
+            # msg = (f"Employees should check their emails for access to the system; however, some records "
+            #        "failed. Please review the failed records (see details below) and try manual insertion.\n**************************************************\n\t\tDetails\n**************************************************")
+            # msg += "\n".join([f"Sheet: {r['sheet']}, Row: {r['row_index']}, Error: {r['error']}" for r in failed_rows_by_sheet])
+            msg = ("Employees should check their emails for access to the system; however, some records "
+                   "failed. Please review the failed records (see details below) and try manual insertion.")
+        else:
+            msg = "All records failed. Please review the errors and try again or register the records manually."
+
+        # return {
+        #     "detail": "Bulk upload processed.",
+        #     "successful_records": success_records,
+        #     "failed_records": error_records,
+        #     "message": "Please review the failed records and try manual insertion if necessary."
+        # }
 
         return {
             "detail": "Bulk upload processed.",
-            "successful_records": success_records,
-            "failed_records": error_records,
-            "message": "Please review the failed records and try manual insertion if necessary."
+            "total_employee_rows": total_rows,
+            "successful_inserts": len(success_records),
+            "failed_inserts": failure_count,
+            "failed_rows_by_sheet": failed_rows_by_sheet,
+            "message": msg
         }
+
 
 
     # async def create_user(

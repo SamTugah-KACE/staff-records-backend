@@ -20,12 +20,14 @@ from .auth import router as auth
 from .promotions import router as promo
 from .tenant_apis import router as tenant
 from .dashboard_routes import router as dashboard
+from .download_sample import router as download_sample
 # from notification.socket import router as notif
 
 api =APIRouter()
 
 # Include Routers
 api.include_router(uploadfile, prefix="/api/uploadfile", tags=["UploadFile"])
+api.include_router(download_sample, prefix="/api/download", tags=["Download Sample File"])
 api.include_router(bank, prefix="/api/default", tags=["Defaults"])
 api.include_router(auth, prefix="/api/auth", tags=["Auth"])
 api.include_router(dashboard, prefix="/api/dashboards", tags=["Dashboards"])
