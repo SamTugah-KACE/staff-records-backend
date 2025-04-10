@@ -1,6 +1,7 @@
 fastapi
 python-dotenv
-uvicorn
+uvicorn[standard]
+websockets
 psycopg2
 pandas
 jinja2
