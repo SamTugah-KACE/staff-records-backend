@@ -916,7 +916,7 @@ class SalaryPaymentOut(SalaryPaymentBase):
         from_attributes = True
 
 
-class DashboardBaseSchema(BaseSchema):
+class DashboardBaseSchema(BaseModel):
     dashboard_name: str = Field(..., description="Name of the dashboard view")
     dashboard_data: Dict[str, Any] = Field(
         ..., description="Configuration data for the dashboard (JSON)"

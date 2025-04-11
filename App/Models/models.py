@@ -690,7 +690,7 @@ class Dashboard(BaseModel):
     organization = relationship("Organization", back_populates="dashboards")
 
 
-class DataBank(BaseModel):
+class DataBank(BaseModel): 
     __tablename__ = "data_banks"
 
     data_name = Column(String, nullable=False)
