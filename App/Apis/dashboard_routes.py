@@ -72,7 +72,8 @@ async def update_dashboard_endpoint(
 async def list_dashboards(
     organization_id: UUID = Query(..., description="Organization id to fetch dashboards for"),
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_permissions(["dashboard:view"]))
+    # current_user: dict = Depends(require_permissions(["dashboard:;view"]))
+    current_user: dict = Depends(require_permissions(["hr:dashboard:read"]))
 ):
     """
     Retrieve all dashboards for a specific organization.
