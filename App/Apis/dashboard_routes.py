@@ -20,7 +20,8 @@ router = APIRouter(prefix="/dashboards", tags=["Dashboards"])
 async def create_dashboard_endpoint(
     dashboard_in: DashboardCreateSchema,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_permissions(["employee:create:dashboard"]))
+    current_user: dict = Depends(require_permissions(["employee:create"]))
+    # current_user: dict = Depends(require_permissions(["employee:create:dashboard"]))
 ):
     """
     Create a new dashboard entry.
