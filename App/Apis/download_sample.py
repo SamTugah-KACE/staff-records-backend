@@ -19,7 +19,8 @@ router = APIRouter()
 
 
 @router.get(
-    "/download-excel",
+    "/sample-file",
+    tags=["Download Sample File"],
     summary="Download the Excel file",
     response_description="The Excel file"
 )
