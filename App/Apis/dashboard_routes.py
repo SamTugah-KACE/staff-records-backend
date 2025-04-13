@@ -15,10 +15,10 @@ from Crud.crud_dashboard import (
 from Schemas.schemas import DashboardCreateSchema, DashboardSchema
 from Crud.auth import get_db, require_permissions  # RBAC dependency from earlier
 
-router = APIRouter(tags=["Dashboards"])
+router = APIRouter()
 
 
-@router.post("/upsert/dashboard", response_model=DashboardSchema, status_code=status.HTTP_201_CREATED)
+@router.post("/upsert", response_model=DashboardSchema, status_code=status.HTTP_201_CREATED)
 async def upsert_dashboard(
     dashboard_in: DashboardCreateSchema,
     db: Session = Depends(get_db),
