@@ -18,7 +18,7 @@ from Crud.auth import get_db, require_permissions  # RBAC dependency from earlie
 router = APIRouter(tags=["Dashboards"])
 
 
-@router.post("/upsert", response_model=DashboardSchema, status_code=status.HTTP_201_CREATED)
+@router.post("/upsert/dashboard", response_model=DashboardSchema, status_code=status.HTTP_201_CREATED)
 async def upsert_dashboard(
     dashboard_in: DashboardCreateSchema,
     db: Session = Depends(get_db),
@@ -62,9 +62,9 @@ async def upsert_dashboard(
             return updated_dashboard
         else:
             # Ensure the new record has the proper user_id set.
-            dashboard_dict = dashboard_in.dict()
-            dashboard_dict["user_id"] = user_id
-            new_dashboard = create_dashboard(db, dashboard_dict)
+            # dashboard_dict = dashboard_in.dict()
+            # dashboard_dict["user_id"] = user_id
+            new_dashboard = create_dashboard(db, dashboard_in)
             return new_dashboard
 
     except Exception as e:
