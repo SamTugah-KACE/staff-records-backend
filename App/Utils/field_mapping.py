@@ -6,6 +6,9 @@ from typing import Dict, Any
 
 # A mapping of normalized keys to canonical field names.
 FIELD_SYNONYMS = {
+    "title": "title",
+    "prefix": "title",
+    "prefixname": "title",
     "firstname": "first_name",
     "first name": "first_name",
     "first": "first_name",
@@ -62,7 +65,19 @@ FIELD_SYNONYMS = {
     "personal": "address",
     "personal_address": "address",
     "employee type": "employee_type",
+    "employee_type": "employee_type",
+    "employment type": "employee_type",
+    "employmenttype": "employee_type",
+    "employment_type": "employee_type",
+    "employment": "employee_type",
+    "employee": "employee_type",
     "rank": "rank",
+    "assigned rank": "rank",
+    "assignedrank": "rank",
+    "assigned_rank": "rank",
+    "assigned department": "assigned_dept",  # may need to be mapped to department or similar
+    "assigneddepartment": "assigned_dept",  # may need to be mapped to department or similar
+    "assigned dept": "assigned_dept",  # may need to be mapped to department or similar
     "assigneddept": "assigned_dept",  # may need to be mapped to department or similar
     "department": "assigned_dept",     # if UI sends “department” we map to our standard field
     "role": "Role",  # for managerial assignment
