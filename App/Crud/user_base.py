@@ -946,7 +946,16 @@ class UserCRUD:
                                 Role.organization_id == organization_id
                             ).first()
                             if not existing_role:
-                                default_perms = {"view": "own", "edit": "own"} if role_val.lower() == "staff" else {}
+                                default_perms = []
+                            if role_val.lower() == "staff":
+                                # Locate the 'Employee' or 'staff' role configuration.
+                                role_config = next(
+                                    (role_item for role_item in settings.DEFAULT_ROLE_PERMISSIONS
+                                     if role_item["name"].lower() in ("employee", "staff")),
+                                    None
+                                )
+                                if role_config:
+                                    default_perms = role_config.get("permissions", [])
                                 new_role = Role(name=role_val, permissions=default_perms, organization_id=organization_id)
                                 db.add(new_role)
                                 db.commit()
