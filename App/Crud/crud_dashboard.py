@@ -121,7 +121,7 @@ def compileDynamicSubmitCode(form_fields: List[Dict], apiUrl: str) -> str:
     return compiledJS
 
 
-def create_dashboard(db: Session, dashboard_in: DashboardCreateSchema) -> Dashboard:
+def create_dashboard(db: Session, dashboard_in: dict) -> Dashboard:
     """
     Create a new dashboard record for the given organization.
     """
@@ -161,3 +161,13 @@ def get_dashboard_by_id(db: Session, dashboard_id: UUID) -> Dashboard:
     if not dashboard:
         raise ValueError("Dashboard not found")
     return dashboard
+
+def get_dashboard_by_user_org(db: Session, user_id: UUID, organization_id: UUID):
+    """
+    Retrieve a dashboard for the given user within the specified organization.
+    Returns a single dashboard or None if not found.
+    """
+    return db.query(Dashboard).filter(
+        Dashboard.user_id == user_id,
+        Dashboard.organization_id == organization_id
+    ).first()

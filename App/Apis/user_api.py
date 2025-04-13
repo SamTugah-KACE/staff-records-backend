@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, Optional, List, Dict
 from uuid import UUID
 from Utils.util import sanitize_row_data
+from Utils.field_mapping import map_employee_fields, merge_contact_info_fields
 from Models.dynamic_models import EmployeeDynamicData, BulkUploadError  # dynamic table for unmatched data
 from database.db_session import get_db, get_async_db  # Dependency injection
 from Models.Tenants.organization import Branch, Organization
@@ -179,7 +180,7 @@ async def create_new_employee(
     last_name: str = Form(...),
     title: Optional[str] = Form("Other"),
     gender: Optional[str] = Form("Other"),
-    date_of_birth: date = Form(...),
+    date_of_birth: date = Form(None),
     marital_status: Optional[str] = Form("Other"),
     email: str = Form(...),
     contact_info: Optional[str] = Form(json.dumps({})),
@@ -234,12 +235,12 @@ async def create_new_employee(
         "last_name": last_name,
         "title": title,
         "sex": gender,
-        "date_of_birth": date_of_birth.isoformat(),
+        "date_of_birth": date_of_birth.isoformat() if date_of_birth else None,
         "marital_status": marital_status,
         "email": email,
         "contact": contact_info,  # Accept as-is: plain text or JSON string.
         "hire_date": hire_date.isoformat() if hire_date else None,
-        "termination_date": termination_date.isoformat() if termination_date else "",
+        "termination_date": termination_date.isoformat() if termination_date else None,
         "employee_type": employee_type,
         "rank": rank,
         "assigned_dept": assigned_dept,
@@ -259,6 +260,11 @@ async def create_new_employee(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid UUID provided.")
     
+    # Map UI keys using the mapping utility.
+    mapped_data = map_employee_fields(employee_data)
+    # Merge any contact info fields (e.g. phone, address) into the "contact_info" key.
+    normalized_data = merge_contact_info_fields(mapped_data)
+
     result = await userbase.create_user(
         background_tasks=background_tasks,
         db=db,
