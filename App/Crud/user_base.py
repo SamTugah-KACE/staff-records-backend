@@ -763,17 +763,39 @@ class UserCRUD:
         Return the role id as a string.
         """
         from Models.Tenants.role import Role  # adjust import as needed
-        default_role_name = "Staff"
-        default_permissions = {"view": "own", "edit": "own", "request": ["department head", "HR"]}
+        default_role_name = "Staff" or "Employee"
+        default_permissions = []
         role_obj = db.query(Role).filter(
             Role.name.ilike(default_role_name),
             Role.organization_id == organization_id
         ).first()
+        print("role_obj: ", role_obj)
+        # If the role is found, return its ID.
         if not role_obj:
-            role_obj = Role(name=default_role_name, permissions=default_permissions, organization_id=organization_id)
+            # If the role is not found, we can use the default permissions from settings.
+            # This is a fallback in case the role is not found in the database.
+            # Locate the 'Employee' or 'staff' role configuration.
+            role_config = next(
+                (role_item for role_item in settings.DEFAULT_ROLE_PERMISSIONS
+                    if role_item["name"].lower() in ("employee", "staff")),
+                None
+            )
+            print("default function: ", role_config)
+            # If a role configuration is found, use its permissions.
+            if role_config:
+                default_permissions = role_config.get("permissions", [])
+                print("default_permissions in default function: ", default_permissions)
+            # Create the new role with default permissions.
+            role_obj = Role(
+                name=default_role_name,
+                permissions=default_permissions,
+                organization_id=organization_id,
+                
+            )
             db.add(role_obj)
             db.commit()
             db.refresh(role_obj)
+
         return str(role_obj.id)
 
     # ------------------------------------------------------------------------------
@@ -852,7 +874,7 @@ class UserCRUD:
         total_employee_rows = 0
         # ------------- PASS 1: Process Employee Records -------------
         for sheet_name, df in sheet_order:
-            print(f"\n\nsheet: {sheet_order}\nsheet_name: ", f"{sheet_name}\ncolumns: {df.columns}")
+            # print(f"\n\nsheet: {sheet_order}\nsheet_name: ", f"{sheet_name}\ncolumns: {df.columns}")
             sheet_lower = sheet_name.strip().lower()
             if sheet_lower in {"employee", "employees"} or len(set(df.columns.str.lower()).intersection(model_field_map["employee"])) >= 5:
                 df.columns = [col.strip().lower() for col in df.columns]
@@ -947,20 +969,24 @@ class UserCRUD:
                             ).first()
                             if not existing_role:
                                 default_perms = []
-                            if role_val.lower() == "staff":
-                                # Locate the 'Employee' or 'staff' role configuration.
-                                role_config = next(
-                                    (role_item for role_item in settings.DEFAULT_ROLE_PERMISSIONS
-                                     if role_item["name"].lower() in ("employee", "staff")),
-                                    None
-                                )
-                                if role_config:
-                                    default_perms = role_config.get("permissions", [])
-                                new_role = Role(name=role_val, permissions=default_perms, organization_id=organization_id)
-                                db.add(new_role)
-                                db.commit()
-                                db.refresh(new_role)
-                                transient_role_id = str(new_role.id)
+                                if role_val.lower() == "staff":
+                                    # Locate the 'Employee' or 'staff' role configuration.
+                                    role_config = next(
+                                        (role_item for role_item in settings.DEFAULT_ROLE_PERMISSIONS
+                                        if role_item["name"].lower() in ("staff","employee")),
+                                        None
+                                    )
+                                    print("role_config: ", role_config)
+                                    if role_config:
+                                        default_perms = role_config.get("permissions", [])
+                                        print("default_perms: ", default_perms)
+                                    # Create new role with default permissions.
+                                    print("creating new role: ", role_val)
+                                    new_role = Role(name=role_val, permissions=default_perms, organization_id=organization_id)
+                                    db.add(new_role)
+                                    db.commit()
+                                    db.refresh(new_role)
+                                    transient_role_id = str(new_role.id)
                             else:
                                 transient_role_id = str(existing_role.id)
                             model_data.pop("role", None)
