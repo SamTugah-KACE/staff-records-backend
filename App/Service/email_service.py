@@ -151,7 +151,7 @@ def get_email_template(username: str, password: str, href: str, org_name:str=Non
             <p>Dear Staff,</p>
             <p>Your account has been created successfully. 
             <br/>Your username is <strong>{username}</strong>.
-            <br/>Your Password is <strong>{pwpassword}</strong>
+            <br/>Your Password is <strong>{password}</strong>
             </p>
             <p>Please change your password upon your first login.</p>
         
