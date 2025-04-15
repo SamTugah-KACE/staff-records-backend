@@ -172,196 +172,204 @@ async def bulk_insert_employee_data_api(
 
 
 
-@router.post("/create", response_model=CreateUserResponseSchema, status_code=status.HTTP_201_CREATED)
-async def create_new_employee(
-    background_tasks: BackgroundTasks,
-    first_name: str = Form(...),
-    middle_name: Optional[str] = Form(None),
-    last_name: str = Form(...),
-    title: Optional[str] = Form("Other"),
-    gender: Optional[str] = Form("Other"),
-    date_of_birth: date = Form(None),
-    marital_status: Optional[str] = Form("Other"),
-    email: str = Form(...),
-    contact_info: Optional[str] = Form(json.dumps({})),
-    hire_date: Optional[date] = Form(None),
-    termination_date: Optional[date] = Form(None),
-    organization_id: str = Form(...),
-    role_id: str = Form(...),
-    image_file: Optional[UploadFile] = File(None),
-    custom_data: Optional[str] = Form(json.dumps({})),
-    employee_type: Optional[str] = Form(None),
-    rank: Optional[str] = Form(None),
-    assigned_dept: Optional[str] = Form(None),
-    # Managerial assignment key: inferred from Role permissions.
-    Role: Optional[str] = Form(None),
-    academic_qualifications: Optional[str] = Form(None),
-    professional_qualifications: Optional[str] = Form(None),
-    payment_details: Optional[str] = Form(None),
-    next_of_kin: Optional[str] = Form(None),
-    created_by: Optional[str] = Form(None),
-    db: Session = Depends(get_db)
-):
-    """
-    Creates a new employee using dynamic data from the manager's registration form.
-    
-    The UI can send keys using synonyms (e.g., "first name", "sex") and extra related
-    data (academic_qualifications, professional_qualifications, payment_details, next_of_kin).
-    """
-    # Merge extra related JSON data.
-    extra_data = {}
-    for key, error_msg in [
-        ("academic_qualifications", "Invalid JSON for academic qualifications"),
-        ("professional_qualifications", "Invalid JSON for professional qualifications"),
-        ("payment_details", "Invalid JSON for payment details"),
-        ("next_of_kin", "Invalid JSON for next of kin")
-    ]:
-        field_val = locals().get(key)
-        if field_val:
-            try:
-                extra_data[key] = json.loads(field_val)
-            except Exception:
-                raise HTTPException(status_code=400, detail=error_msg)
-    
-    try:
-        custom_data_dict = json.loads(custom_data) if custom_data else {}
-    except Exception:
-        custom_data_dict = {}
-    custom_data_dict.update(extra_data)
-    
-    employee_data = {
-        "first_name": first_name,
-        "middle_name": middle_name,
-        "last_name": last_name,
-        "title": title,
-        "sex": gender,
-        "date_of_birth": date_of_birth.isoformat() if date_of_birth else None,
-        "marital_status": marital_status,
-        "email": email,
-        "contact": contact_info,  # Accept as-is: plain text or JSON string.
-        "hire_date": hire_date.isoformat() if hire_date else None,
-        "termination_date": termination_date.isoformat() if termination_date else None,
-        "employee_type": employee_type,
-        "rank": rank,
-        "assigned_dept": assigned_dept,
-        "Role": Role,  # For managerial assignment inference.
-        "custom_data": json.dumps(custom_data_dict),
-    }
-    
-    print("\n\nemployee_data: \n", employee_data)
-    # Validate the image file if provided
-    if image_file and not allowed_image_file(image_file.filename):
-        raise HTTPException(status_code=400, detail="Invalid file type. Allowed types: .jpg, .jpeg, .gif, .png")
-    
-    try:
-        org_id = UUID(organization_id)
-        role_uuid = UUID(role_id)
-        created_by_uuid = UUID(created_by) if created_by else None
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid UUID provided.")
-    
-    # Map UI keys using the mapping utility.
-    mapped_data = map_employee_fields(employee_data)
-    print("\n\nmapped_data: \n", mapped_data)
-    # Merge any contact info fields (e.g. phone, address) into the "contact_info" key.
-    normalized_data = merge_contact_info_fields(mapped_data)
-
-    print("\n\nnormalized_data: \n", normalized_data)
-    result = await userbase.create_user(
-        background_tasks=background_tasks,
-        db=db,
-        employee_data=employee_data,
-        # employee_data = normalized_data,
-        role_id=role_id,
-        organization_id=organization_id,
-        image_file=image_file,
-        created_by=created_by,
-    )
-    return result
-
-
-# from fastapi import Request
-
 # @router.post("/create", response_model=CreateUserResponseSchema, status_code=status.HTTP_201_CREATED)
 # async def create_new_employee(
-#     request: Request,
 #     background_tasks: BackgroundTasks,
+#     first_name: str = Form(...),
+#     middle_name: Optional[str] = Form(None),
+#     last_name: str = Form(...),
+#     title: Optional[str] = Form("Other"),
+#     gender: Optional[str] = Form("Other"),
+#     date_of_birth: date = Form(None),
+#     marital_status: Optional[str] = Form("Other"),
+#     email: str = Form(...),
+#     contact_info: Optional[str] = Form(json.dumps({})),
+#     hire_date: Optional[date] = Form(None),
+#     termination_date: Optional[date] = Form(None),
+#     organization_id: str = Form(...),
+#     role_id: str = Form(...),
+#     image_file: Optional[UploadFile] = File(None),
+#     custom_data: Optional[str] = Form(json.dumps({})),
+#     employee_type: Optional[str] = Form(None),
+#     rank: Optional[str] = Form(None),
+#     assigned_dept: Optional[str] = Form(None),
+#     # Managerial assignment key: inferred from Role permissions.
+#     Role: Optional[str] = Form(None),
+#     academic_qualifications: Optional[str] = Form(None),
+#     professional_qualifications: Optional[str] = Form(None),
+#     payment_details: Optional[str] = Form(None),
+#     next_of_kin: Optional[str] = Form(None),
+#     created_by: Optional[str] = Form(None),
 #     db: Session = Depends(get_db)
 # ):
-#     form = await request.form()
-#     print("\nreceived form data: ", form)
-#     form_data = dict(form)
-
-#     # # === FIELD SYNONYM MAP ===
-#     # FIELD_SYNONYMS = {
-#     #     "Prefix": "title",
-#     #     "Given name": "first_name",
-#     #     "Middle name": "middle_name",
-#     #     "Surname": "last_name",
-#     #     "Sex": "gender",
-#     #     "Phone Number": "contact_info",
-#     #     "Role Selection": "role_id",
-#     #     "Employee Type": "employee_type",
-#     #     "Email": "email",
-#     #     "Submit Button": None,  # to be ignored
-#     #     "organization_id": "organization_id",  # allow exact matches too
-#     # }
-
-#     # === Convert form keys to backend keys ===
-#     normalized_data = {}
-#     for key, value in form_data.items():
-#         backend_key = FIELD_SYNONYMS.get(key)
-#         if backend_key:
-#             normalized_data[backend_key] = value
-#         else:
-#             normalized_data.setdefault("custom_data", {})[key] = value
-
-#     print("\n\nform data: \n", form_data)
-#     print("\n\nnormalized_data: \n", normalized_data)
-#     # Parse and cast UUIDs early
+#     """
+#     Creates a new employee using dynamic data from the manager's registration form.
+    
+#     The UI can send keys using synonyms (e.g., "first name", "sex") and extra related
+#     data (academic_qualifications, professional_qualifications, payment_details, next_of_kin).
+#     """
+#     # Merge extra related JSON data.
+#     extra_data = {}
+#     for key, error_msg in [
+#         ("academic_qualifications", "Invalid JSON for academic qualifications"),
+#         ("professional_qualifications", "Invalid JSON for professional qualifications"),
+#         ("payment_details", "Invalid JSON for payment details"),
+#         ("next_of_kin", "Invalid JSON for next of kin")
+#     ]:
+#         field_val = locals().get(key)
+#         if field_val:
+#             try:
+#                 extra_data[key] = json.loads(field_val)
+#             except Exception:
+#                 raise HTTPException(status_code=400, detail=error_msg)
+    
 #     try:
-#         org_id = UUID(normalized_data["organization_id"])
-#         role_id = UUID(normalized_data["role_id"])
+#         custom_data_dict = json.loads(custom_data) if custom_data else {}
 #     except Exception:
-#         raise HTTPException(status_code=400, detail="Invalid UUID format for organization or role ID.")
-
-#     # === Basic validation ===
-#     for field in ["first_name", "last_name", "email"]:
-#         if not normalized_data.get(field):
-#             raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
-
-#     # Parse contact info if needed
-#     contact_info = normalized_data.get("contact_info", "")
-#     if isinstance(contact_info, str) and contact_info.startswith("{"):
-#         try:
-#             contact_info = json.loads(contact_info)
-#         except Exception:
-#             pass  # fallback to string if not JSON
-
-#     normalized_data["contact_info"] = contact_info
-
-#     # Extract optional values
-#     created_by = normalized_data.get("created_by")
-#     image_file = form.get("image_file") if "image_file" in form else None
-
-#     # Inject dynamic related fields
+#         custom_data_dict = {}
+#     custom_data_dict.update(extra_data)
+    
 #     employee_data = {
-#         k: v for k, v in normalized_data.items()
-#         if k not in {"role_id", "organization_id", "created_by", "image_file"}
+#         "first_name": first_name,
+#         "middle_name": middle_name,
+#         "last_name": last_name,
+#         "title": title,
+#         "sex": gender,
+#         "date_of_birth": date_of_birth.isoformat() if date_of_birth else None,
+#         "marital_status": marital_status,
+#         "email": email,
+#         "contact": contact_info,  # Accept as-is: plain text or JSON string.
+#         "hire_date": hire_date.isoformat() if hire_date else None,
+#         "termination_date": termination_date.isoformat() if termination_date else None,
+#         "employee_type": employee_type,
+#         "rank": rank,
+#         "assigned_dept": assigned_dept,
+#         "Role": Role,  # For managerial assignment inference.
+#         "custom_data": json.dumps(custom_data_dict),
 #     }
+    
+#     print("\n\nemployee_data: \n", employee_data)
+#     # Validate the image file if provided
+#     if image_file and not allowed_image_file(image_file.filename):
+#         raise HTTPException(status_code=400, detail="Invalid file type. Allowed types: .jpg, .jpeg, .gif, .png")
+    
+#     try:
+#         org_id = UUID(organization_id)
+#         role_uuid = UUID(role_id)
+#         created_by_uuid = UUID(created_by) if created_by else None
+#     except Exception:
+#         raise HTTPException(status_code=400, detail="Invalid UUID provided.")
+    
+#     # Map UI keys using the mapping utility.
+#     mapped_data = map_employee_fields(employee_data)
+#     print("\n\nmapped_data: \n", mapped_data)
+#     # Merge any contact info fields (e.g. phone, address) into the "contact_info" key.
+#     normalized_data = merge_contact_info_fields(mapped_data)
 
-#     print("\nProcessed Employee Data:\n", employee_data)
-
+#     print("\n\nnormalized_data: \n", normalized_data)
 #     result = await userbase.create_user(
 #         background_tasks=background_tasks,
 #         db=db,
 #         employee_data=employee_data,
+#         # employee_data = normalized_data,
 #         role_id=role_id,
-#         organization_id=org_id,
+#         organization_id=organization_id,
 #         image_file=image_file,
 #         created_by=created_by,
 #     )
 #     return result
+
+
+from fastapi import Request
+
+@router.post("/create", response_model=CreateUserResponseSchema, status_code=status.HTTP_201_CREATED)
+async def create_new_employee(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    print("\n\nlocals(): \n", locals())
+    print("\n\nrequest: \n", request)
+    # Parse the form data from the request
+    # This assumes the request is a form submission (e.g., from a web form).
+    # If you're using JSON, you can use await request.json() instead.
+    # form = await request.json()
+    print("\n\nrequest.form(): \n", request.form())
+    print("\n\nrequest.json()(): \n", request.json()) 
+    form = await request.form()
+    print("\nreceived form data: ", form)
+    form_data = dict(form)
+
+    # # === FIELD SYNONYM MAP ===
+    # FIELD_SYNONYMS = {
+    #     "Prefix": "title",
+    #     "Given name": "first_name",
+    #     "Middle name": "middle_name",
+    #     "Surname": "last_name",
+    #     "Sex": "gender",
+    #     "Phone Number": "contact_info",
+    #     "Role Selection": "role_id",
+    #     "Employee Type": "employee_type",
+    #     "Email": "email",
+    #     "Submit Button": None,  # to be ignored
+    #     "organization_id": "organization_id",  # allow exact matches too
+    # }
+
+    # === Convert form keys to backend keys ===
+    normalized_data = {}
+    for key, value in form_data.items():
+        backend_key = FIELD_SYNONYMS.get(key)
+        if backend_key:
+            normalized_data[backend_key] = value
+        else:
+            normalized_data.setdefault("custom_data", {})[key] = value
+
+    print("\n\nform data: \n", form_data)
+    print("\n\nnormalized_data: \n", normalized_data)
+    # Parse and cast UUIDs early
+    try:
+        org_id = UUID(normalized_data["organization_id"])
+        role_id = UUID(normalized_data["role_id"])
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid UUID format for organization or role ID.")
+
+    # === Basic validation ===
+    for field in ["first_name", "last_name", "email"]:
+        if not normalized_data.get(field):
+            raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
+
+    # Parse contact info if needed
+    contact_info = normalized_data.get("contact_info", "")
+    if isinstance(contact_info, str) and contact_info.startswith("{"):
+        try:
+            contact_info = json.loads(contact_info)
+        except Exception:
+            pass  # fallback to string if not JSON
+
+    normalized_data["contact_info"] = contact_info
+
+    # Extract optional values
+    created_by = normalized_data.get("created_by")
+    image_file = form.get("image_file") if "image_file" in form else None
+
+    # Inject dynamic related fields
+    employee_data = {
+        k: v for k, v in normalized_data.items()
+        if k not in {"role_id", "organization_id", "created_by", "image_file"}
+    }
+
+    print("\nProcessed Employee Data:\n", employee_data)
+
+    result = await userbase.create_user(
+        background_tasks=background_tasks,
+        db=db,
+        employee_data=employee_data,
+        role_id=role_id,
+        organization_id=org_id,
+        image_file=image_file,
+        created_by=created_by,
+    )
+    return result
 
 
 
