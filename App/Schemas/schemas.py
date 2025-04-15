@@ -278,17 +278,17 @@ class UserSchema(BaseSchema):
         from_attributes = True
 
 class CreateUserResponseSchema(BaseModel):
-    id: str  # return UUID as string
+    # id: str  # return UUID as string
     message: str
     # If image_path may be a single URL (string) or multiple (dict)
-    image_path: Union[str, Dict[str, str]]
+    # image_path: Union[str, Dict[str, str]]
     # image_path: Optional[str]
 
     class Config:
-        # from_attributes = True
-        json_encoders = {
-            UUID: lambda v: str(v)
-        }
+        from_attributes = True
+        # json_encoders = {
+        #     UUID: lambda v: str(v)
+        # }
 
 class GetUserResponseSchema(BaseModel):
     user: Dict[str, Union[str, dict]]
