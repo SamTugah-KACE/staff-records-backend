@@ -506,7 +506,7 @@ class UserCRUD:
     def hash_password(self, password: str) -> str:
         return pwd_context.hash(password)
 
-    async def log_audit(
+    def log_audit(
         self,
         # db: AsyncSession,
         db: Session,
@@ -524,6 +524,8 @@ class UserCRUD:
         db.add(audit_entry)
         # await db.commit()  if not None else db.commit()
         db.commit()
+    
+    
     
     def extract_url(self, data_str):
 
@@ -1643,16 +1645,19 @@ class UserCRUD:
                 db.commit()
             except Exception:
                 pass
+         
+        logos = org.logos
+        logo = next(iter(logos.values())) if len(logos) > 1 else logos
 
         # Step 18: Send email with login credentials.
         email_service = EmailService()
-        email_body = get_email_template(user_name, password, org.access_url, org.name)
+        email_body = get_email_template(user_name, password, org.access_url, org.name, logo)
         await email_service.send_email(background_tasks, recipients=[email], subject="Account Credentials", html_body=email_body)
         
         # Step 19: Log audit events.
-        await self.log_audit(db, "CREATE", created_by, "employees", employee_record.id)
+        self.log_audit(db, "CREATE", created_by, "employees", employee_record.id)
         # await self.log_audit(db, "CREATE", created_by, "users", user_record.id)
-        
+        print("\n\nUser Created Successfully")
         return {
             # "id": str(user_record.id),
             "message": "User created successfully",
