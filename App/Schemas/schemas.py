@@ -944,3 +944,44 @@ class DashboardSchema(DashboardBaseSchema):
 
     class Config:
         from_attributes = True
+
+
+# -------------------------------
+# Employee Dashboard schemas
+# -------------------------------
+class EmployeeDynamicDataSchema(BaseModel):
+    data_category: str
+    data: Dict[str, Any]
+
+
+class EmployeeTypeSchema(BaseModel):
+    type_code: Optional[str] = None
+    description: Optional[str] = None
+    default_criteria: Optional[Dict[str, Any]] = None
+
+
+class EmploymentDetailsSchema(BaseModel):
+    employee_type: Optional[EmployeeTypeSchema] = None
+    rank: Optional[RankOut] = None
+    department: Optional[DepartmentOut] = None
+    dynamic_models: Optional[EmployeeDynamicDataSchema] = None
+
+
+class EmployeeQualificationSchema(BaseModel):
+    academic_qualification: Optional[List[AcademicQualificationSchema]] = None
+    professional_qualification: Optional[List[ProfessionalQualificationSchema]] = None
+
+
+class EmployeeDashboardSchema(BaseModel):
+    bio_data: EmployeeSchema
+    qualifications: Optional[EmployeeQualificationSchema] = None
+    employment_history: Optional[List[EmploymentHistorySchema]] = None
+    emergency_contacts: Optional[List[EmergencyContactSchema]] = None
+    next_of_kins: Optional[List[NextOfKinSchema]] = None
+    payment_details: Optional[List[EmployeePaymentDetailOut]] = None
+    salary_payments: Optional[List[SalaryPaymentOut]] = None
+    promotion_requests: Optional[List[PromotionRequestOut]] = None
+    employment_details: Optional[EmploymentDetailsSchema] = None
+
+    class Config:
+        from_attributes = True

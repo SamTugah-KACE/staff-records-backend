@@ -1,4 +1,6 @@
 # dashboard_routes.py
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Path
 from sqlalchemy.orm import Session
 from uuid import UUID
@@ -12,8 +14,10 @@ from Crud.crud_dashboard import (
     compileDynamicSubmitCode,
     get_dashboard_by_user_org
 )
-from Schemas.schemas import DashboardCreateSchema, DashboardSchema
+from Schemas.schemas import DashboardCreateSchema, DashboardSchema, EmployeeDashboardSchema
 from Crud.auth import get_db, require_permissions  # RBAC dependency from earlier
+from Crud.employee_dashboard import get_employee_dashboard_info
+
 
 router = APIRouter()
 
@@ -161,6 +165,32 @@ async def get_dashboard_endpoint(
         dashboard = get_dashboard_by_id(db, dashboard_id)
         return dashboard
     except ValueError as ve:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch dashboard: {str(e)}"
+        )
+
+
+@router.get(
+    "/employees/{employee_id}",
+    response_model=EmployeeDashboardSchema,
+    status_code=status.HTTP_200_OK
+)
+async def get_employee_dashboard(
+    employee_id: UUID,
+    db: Session = Depends(get_db),
+    # current_user: dict = Depends(require_permissions(["employee:read:dashboard"]))
+):
+    """
+    Retrieve all information of an employee by ID.
+    """
+    try:
+        result = get_employee_dashboard_info(db=db, employee_id=employee_id)
+        return result
+    except ValueError as ve:
+        logging.exception("Failed to get employee info")
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(ve))
     except Exception as e:
         raise HTTPException(
