@@ -293,13 +293,13 @@ async def create_new_employee(
     # Parse the form data from the request
     # This assumes the request is a form submission (e.g., from a web form).
     # If you're using JSON, you can use await request.json() instead.
-    # form = await request.json()
+    form = await request.json() # or await request.form() for form data
     print("\n\nrequest.form(): \n", await request.form())
     print("\n\nrequest.json()(): \n", await request.json()) 
-    form = await request.form()
+    form = await request.json()
     print("\nreceived form data: ", form)
-    form_data = dict(form)
-
+    form_data = dict(form) 
+    print("\n\nform_data: \n", form_data)
     # # === FIELD SYNONYM MAP ===
     # FIELD_SYNONYMS = {
     #     "Prefix": "title",
@@ -315,6 +315,11 @@ async def create_new_employee(
     #     "organization_id": "organization_id",  # allow exact matches too
     # }
 
+    # # remove key 'Submit Button' from form_data if it exists
+    if "Submit Button" in form_data:
+        del form_data["Submit Button"]
+    
+    print("\n\nform_data after removing 'Submit Button': \n", form_data)
     # === Convert form keys to backend keys ===
     normalized_data = {}
     for key, value in form_data.items():
