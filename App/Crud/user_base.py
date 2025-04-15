@@ -1374,7 +1374,7 @@ class UserCRUD:
         employee_data: dict,
         role_id: UUID,
         organization_id: UUID,
-        image_file: UploadFile,
+        image_file: Optional[UploadFile]=None,
         created_by: Optional[UUID] = None,
     ) -> dict:
         """
@@ -1541,7 +1541,7 @@ class UserCRUD:
             # contact_info=json.dumps(base_employee_data.get("contact_info", {})),
             contact_info=base_contact,  # Pass as a dict directly (for JSONB)
             custom_data=custom_data if custom_data else None,
-            profile_image_path=image_url,
+            profile_image_path=image_url ,
             organization_id=organization_id,
             employee_type_id=employee_type_id,
             rank_id=rank_id,
@@ -1576,18 +1576,18 @@ class UserCRUD:
             db.commit()
         
         # Step 16: Create the User record.
-        user_record = User(
-            username=user_name,
-            email=email,
-            hashed_password=hashed_password,
-            role_id=role_id,
-            organization_id=organization_id,
-            is_active=True,
-            image_path=image_url,
-        )
-        db.add(user_record)
-        db.commit()
-        db.refresh(user_record)
+        # user_record = User(
+        #     username=user_name,
+        #     email=email,
+        #     hashed_password=hashed_password,
+        #     role_id=role_id,
+        #     organization_id=organization_id,
+        #     is_active=True,
+        #     image_path=image_url,
+        # )
+        # db.add(user_record)
+        # db.commit()
+        # db.refresh(user_record)
         
         # Step 17: Infer managerial assignment from Role permissions.
         # Here, we assume Role.permissions is a JSON object that may include keys:
@@ -1651,12 +1651,12 @@ class UserCRUD:
         
         # Step 19: Log audit events.
         await self.log_audit(db, "CREATE", created_by, "employees", employee_record.id)
-        await self.log_audit(db, "CREATE", created_by, "users", user_record.id)
+        # await self.log_audit(db, "CREATE", created_by, "users", user_record.id)
         
         return {
-            "id": str(user_record.id),
+            # "id": str(user_record.id),
             "message": "User created successfully",
-            "image_path": image_url,
+            # "image_path": image_url if image_url else None,
         }
 
 
