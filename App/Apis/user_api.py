@@ -320,18 +320,18 @@ async def create_new_employee(
         del form_data["Submit Button"]
     
     print("\n\nform_data after removing 'Submit Button': \n", form_data)
-    # === Convert form keys to backend keys ===
-    normalized_data = {}
-    for key, value in form_data.items():
-        backend_key = FIELD_SYNONYMS.get(key)
-        if backend_key:
-            normalized_data[backend_key] = value
-        else:
-            normalized_data.setdefault("custom_data", {})[key] = value
+    # # === Convert form keys to backend keys ===
+    # normalized_data = {}
+    # for key, value in form_data.items():
+    #     backend_key = FIELD_SYNONYMS.get(key)
+    #     if backend_key:
+    #         normalized_data[backend_key] = value
+    #     else:
+    #         normalized_data.setdefault("custom_data", {})[key] = value
 
     print("\n\nform data: \n", form_data)
-    print("\n\nnormalized_data: \n", normalized_data)
-    print("organization_id: ", normalized_data["organization_id"])
+    # print("\n\nnormalized_data: \n", normalized_data)
+    # print("organization_id: ", normalized_data["organization_id"])
     # Parse and cast UUIDs early
     # try:
     #     org_id = UUID(normalized_data["organization_id"])
@@ -341,32 +341,32 @@ async def create_new_employee(
 
     # === Basic validation ===
     for field in ["first_name", "last_name", "email"]:
-        if not normalized_data.get(field):
+        if not form_data.get(field):
             raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
 
     # Parse contact info if needed
-    contact_info = normalized_data.get("contact_info", "")
+    contact_info = form_data.get("contact_info", "")
     if isinstance(contact_info, str) and contact_info.startswith("{"):
         try:
             contact_info = json.loads(contact_info)
         except Exception:
             pass  # fallback to string if not JSON
 
-    normalized_data["contact_info"] = contact_info
+    form_data["contact_info"] = contact_info
 
     # Extract optional values
-    created_by = normalized_data.get("created_by")
+    created_by = form_data.get("created_by")
     image_file = form.get("image_file") if "image_file" in form else None
 
     # Inject dynamic related fields
     employee_data = {
-        k: v for k, v in normalized_data.items()
+        k: v for k, v in form_data.items()
         if k not in {"role_id", "organization_id", "created_by", "image_file"}
     }
 
     print("\nProcessed Employee Data:\n", employee_data)
-    role_id = normalized_data.get("role_id")
-    org_id = normalized_data.get("organization_id")
+    role_id = form_data.get("role_id")
+    org_id = form_data.get("organization_id")
     # Validate the image file if provided
     if image_file and not allowed_image_file(image_file.filename):
         raise HTTPException(status_code=400, detail="Invalid file type. Allowed types: .jpg, .jpeg, .gif, .png")
