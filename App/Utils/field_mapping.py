@@ -85,6 +85,8 @@ FIELD_SYNONYMS = {
     "professional qualifications": "professional_qualifications",
     "payment details": "payment_details",
     "next of kin": "next_of_kin",
+    "Submit Button": None,  # to be ignored
+    "organization_id": "organization_id",  # allow exact matches too
 }
 
 def normalize_key(key: str) -> str:
