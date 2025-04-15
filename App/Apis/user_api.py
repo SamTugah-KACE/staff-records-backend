@@ -265,10 +265,12 @@ async def create_new_employee(
     # Merge any contact info fields (e.g. phone, address) into the "contact_info" key.
     normalized_data = merge_contact_info_fields(mapped_data)
 
+    print("\n\nnormalized_data: \n", normalized_data)
     result = await userbase.create_user(
         background_tasks=background_tasks,
         db=db,
-        employee_data=employee_data,
+        # employee_data=employee_data,
+        employee_data = normalized_data,
         role_id=role_id,
         organization_id=organization_id,
         image_file=image_file,
