@@ -293,9 +293,9 @@ async def create_new_employee(
     # Parse the form data from the request
     # This assumes the request is a form submission (e.g., from a web form).
     # If you're using JSON, you can use await request.json() instead.
-    form = await request.json() # or await request.form() for form data
-    print("\n\nrequest.form(): \n", await request.form())
-    print("\n\nrequest.json()(): \n", await request.json()) 
+    # form = await request.json() # or await request.form() for form data
+    # print("\n\nrequest.form(): \n", await request.form())
+    # print("\n\nrequest.json()(): \n", await request.json()) 
     form = await request.json()
     print("\nreceived form data: ", form)
     form_data = dict(form) 
@@ -331,12 +331,13 @@ async def create_new_employee(
 
     print("\n\nform data: \n", form_data)
     print("\n\nnormalized_data: \n", normalized_data)
+    print("organization_id: ", normalized_data["organization_id"])
     # Parse and cast UUIDs early
-    try:
-        org_id = UUID(normalized_data["organization_id"])
-        role_id = UUID(normalized_data["role_id"])
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid UUID format for organization or role ID.")
+    # try:
+    #     org_id = UUID(normalized_data["organization_id"])
+    #     role_id = UUID(normalized_data["role_id"])
+    # except Exception:
+    #     raise HTTPException(status_code=400, detail="Invalid UUID format for organization or role ID.")
 
     # === Basic validation ===
     for field in ["first_name", "last_name", "email"]:
@@ -364,14 +365,20 @@ async def create_new_employee(
     }
 
     print("\nProcessed Employee Data:\n", employee_data)
-
+    role_id = normalized_data.get("role_id")
+    org_id = normalized_data.get("organization_id")
+    # Validate the image file if provided
+    if image_file and not allowed_image_file(image_file.filename):
+        raise HTTPException(status_code=400, detail="Invalid file type. Allowed types: .jpg, .jpeg, .gif, .png")
+    
+    print(f"role_id, org_id: {role_id}\n{org_id}" )
     result = await userbase.create_user(
         background_tasks=background_tasks,
         db=db,
         employee_data=employee_data,
         role_id=role_id,
         organization_id=org_id,
-        image_file=image_file,
+        image_file=image_file if image_file else None,
         created_by=created_by,
     )
     return result
