@@ -294,8 +294,8 @@ async def create_new_employee(
     # This assumes the request is a form submission (e.g., from a web form).
     # If you're using JSON, you can use await request.json() instead.
     # form = await request.json()
-    print("\n\nrequest.form(): \n", request.form())
-    print("\n\nrequest.json()(): \n", request.json()) 
+    print("\n\nrequest.form(): \n", await request.form())
+    print("\n\nrequest.json()(): \n", await request.json()) 
     form = await request.form()
     print("\nreceived form data: ", form)
     form_data = dict(form)
