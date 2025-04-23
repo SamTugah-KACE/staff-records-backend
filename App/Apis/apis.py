@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List, Dict, Union
 from uuid import UUID
 
-from Apis.new.apis import employee_specific_routers, employee_type_router
+from Apis.employee.apis import employee_specific_routers, employee_type_router
 from Utils.util import get_organization_acronym
 from Service.email_service import EmailService, get_email_template
 from Utils.security import Security
