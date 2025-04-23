@@ -58,12 +58,31 @@ def get_employee_dashboard_info(db: Session, employee_id: UUID) -> EmployeeDashb
     ) = employee_query
 
     qualifications = dict()  # todo
-    employment_details = dict(
-        employee_type=bio_data.employee_type,
-        rank=bio_data.rank,
-        department=bio_data.department,
-        dynamic_models=None,
+
+    employment_details = dict()
+    if bio_data.employee_type: employment_details['employee_type'] = dict(
+        type_code=bio_data.employee_type.type_code,
+        description=bio_data.employee_type.description,
+        default_criteria=bio_data.employee_type.default_criteria,
     )
+    print("bio_data.rank here", bio_data.rank)
+    if bio_data.rank: employment_details['rank'] = dict(
+        id= bio_data.rank.id,
+        organization_id=bio_data.rank.organization_id,
+        name=bio_data.rank.name,
+        min_salary=bio_data.rank.min_salary,
+        max_salary=bio_data.rank.max_salary,
+        currency=bio_data.rank.currency,
+        conversion_info=bio_data.rank.conversion_info,
+    )
+    if bio_data.department: employment_details['department'] = dict(
+        id= bio_data.department.id,
+        organization_id=bio_data.department.organization_id,
+        name=bio_data.department.name,
+        branch_id=bio_data.department.branch_id,
+        department_head=bio_data.department.department_head_id
+    )
+    employment_details['dynamic_models'] = None
     response = dict(
         bio_data=bio_data,
         qualifications=qualifications,
