@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import (
     Any, Dict, Generic, List, Optional, Type, TypeVar, Union, Sequence
 )
+from uuid import UUID
 
 from fastapi import HTTPException
 from pydantic import BaseModel, UUID4
@@ -48,14 +49,14 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         """
         try:
             query = db.query(self.model)
-            for k, v in filters:
-                query = query.filter(k == v)
+            for k, v in filters.items():
+                query = query.filter(getattr(self.model, k) == v)
 
             result = query.first()
-
             if not result and not silent: raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail=f"{self.model.__name__} not found"
             )
+            return result
         except SQLAlchemyError:
             logging.error(f"Database error fetching {self.model.__name__} with id={id}", exc_info=True)
             raise self._http_500_exception()
@@ -218,6 +219,7 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
             db_obj = self.model(**model_data)
             db.add(db_obj)
             db.commit()
+            db.refresh(db_obj)
             return self.get_by_id(db=db, id=db_obj.id)
 
         except HTTPException:
@@ -345,13 +347,13 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
             logging.exception(f"Error during bulk delete of {self.model.__name__}")
             raise self._http_500_exception()
 
-    def _validate_unique_fields(self, db: Session, *, model_data: dict, unique_fields: List, id: UUID4 = None):
+    def _validate_unique_fields(self, db: Session, *, model_data: dict, unique_fields: List, id: UUID = None):
         for field in unique_fields:
             if field in model_data and model_data[field]:
                 query = select(self.model).where(getattr(self.model, field) == model_data[field])
 
                 if id:
-                    if not isinstance(id, UUID4): raise self._http_400_exception(
+                    if not isinstance(id, UUID): raise self._http_400_exception(
                         "Invalid UUID format for ID"
                     )
                     query = query.where(self.model.id != id)
@@ -378,23 +380,10 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
 
             return query.order_by(*_ordering_fields)
         except AttributeError:
-            raise self._http_409_exception(
-                f'Invalid key given to order_by: {order_by}'
+            raise HTTPException(
+                status_code=HTTP_400_BAD_REQUEST,
+                detail=f'Invalid key given to order_by: {order_by}'
             )
-
-    @staticmethod
-    def http_500_exception() -> Exception:
-        return HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Something went wrong! Kindly try again or contact support.",
-        )
-
-    @staticmethod
-    def http_400_exception() -> Exception:
-        return HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Something went wrong! Kindly try again or contact support.",
-        )
 
     @staticmethod
     def _format_integrity_error(e: IntegrityError) -> str:
