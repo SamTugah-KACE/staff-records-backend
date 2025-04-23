@@ -77,11 +77,11 @@ class PaymentStatus(str, Enum):
 
 # Shared Base Schema
 class BaseSchema(BaseModel):
-    id: UUID = None
-    created_at: datetime = None
-    updated_at: Optional[datetime] = None
-    created_by: Optional[UUID] = None
-    updated_by: Optional[UUID] = None
+    id: UUID
+    created_at: datetime
+    updated_at: Optional[datetime]
+    created_by: Optional[UUID]
+    updated_by: Optional[UUID]
 
     class Config:
         # orm_mode = True
