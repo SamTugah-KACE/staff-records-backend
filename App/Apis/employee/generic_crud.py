@@ -125,13 +125,11 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
         query = db.query(self.model)
         try:
             for field, value in filters.items():
-                if value is not None:
-                    query = query.filter(getattr(self.model, field) == value)
+                if value is not None: query = query.filter(getattr(self.model, field) == value)
 
             query = self._get_ordering(query=query, order_by=order_by)
-            query = query.offset(skip).limit(limit)
-            result = db.execute(query)
-            return result.scalars().all()
+            result = query.offset(skip).limit(limit).all()
+            return result
 
         except HTTPException:
             raise
@@ -169,9 +167,8 @@ class CRUDBase(Generic[ModelType, CreateSchemaType, UpdateSchemaType]):
                     query = query.filter(field_attr.ilike(f"%{pattern}%"))
 
             query = self._get_ordering(query=query, order_by=order_by)
-            query = query.offset(skip).limit(limit)
-            result = db.execute(query)
-            return result.scalars().all()
+            result = query.offset(skip).limit(limit).all()
+            return result
 
         except HTTPException:
             raise
