@@ -124,7 +124,7 @@ class EmailService:
 
     # Define the email template
 # Define the email template
-def get_email_template(username: str, password: str, href: str, org_name:str=None) -> str:
+def get_email_template(username: str, password: str, href: str, org_name:str=None, org_logo:str=None) -> str:
     print("\n\norg_name in email_template:: ", org_name)
     name = None
     if org_name is None:
@@ -134,13 +134,34 @@ def get_email_template(username: str, password: str, href: str, org_name:str=Non
         
 
     print("\nname:: ", name)
+    # return f"""
+    # <h2>{name} Staff Records System</h2>
+    # <p>Your account has been created successfully. Below are your login credentials:</p>
+    # <p><strong>Username:</strong> {username}</p>
+    # <p><strong>Password:</strong> {password}</p>
+    # <p>Please change your password after logging in for the first time using the link: <a href='{href}'>Login</a></p>
+    # """
     return f"""
-    <h2>{name} Staff Records System</h2>
-    <p>Your account has been created successfully. Below are your login credentials:</p>
-    <p><strong>Username:</strong> {username}</p>
-    <p><strong>Password:</strong> {password}</p>
-    <p>Please change your password after logging in for the first time using the link: <a href='{href}'>Login</a></p>
-    """
+    <div style="max-width:600px;margin:0 auto;font-family:Arial,sans-serif;">
+        <div style="text-align:center;padding:20px;">
+            <img src="{org_logo}" alt="{name} Logo" style="max-width:200px; width:100%; height:auto;">
+        </div>
+        <div style="padding:20px;">
+            <h2>{name} Staff Records System</h2>
+            <p>Dear Staff,</p>
+            <p>Your account has been created successfully. 
+            <br/>Your username is <strong>{username}</strong>.
+            <br/>Your Password is <strong>{password}</strong>
+            </p>
+            <p>Please change your password upon your first login.</p>
+        
+            <div style="text-align:center;margin-top:30px;">
+             <a href="{href}" style="display:inline-block;padding:10px 20px;background-color:#007bff;color:#fff;text-decoration:none;border-radius:4px;">Login</a> 
+            </div>
+            <p style="margin-top:30px;">Best regards,<br>{name} Team</p>
+        </div>
+        </div>
+        """
 
 def build_account_email_html(row_data: dict,  logo_url: str, login_href: str, pwd: str) -> str:
         """
