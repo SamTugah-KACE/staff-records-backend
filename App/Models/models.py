@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Index, String, Boolean, JSON, Date, DateTime, Integer, ForeignKey, DECIMAL,
-    Table, create_engine, CheckConstraint, LargeBinary, event, inspect, update
+    Table, create_engine, CheckConstraint, LargeBinary, event, inspect, select, update
 )
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -15,7 +15,7 @@ from Service.email_service import EmailService, get_email_template
 from Utils.security import Security
 from database.db_session import BaseModel, get_db
 from fastapi import HTTPException, BackgroundTasks
-
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from Utils.config import DevelopmentConfig
 
 
@@ -27,6 +27,15 @@ settings = DevelopmentConfig()
 # Initialize the global Security instance.
 # In a multi-tenant system sharing one schema, a common secret key is often used.
 global_security = Security(secret_key=settings.SECRET_KEY, algorithm=settings.ALGORITHM, token_expire_minutes=60)
+
+
+
+# Request Status Enum
+class RequestStatus(str, Enum):
+    Pending = "Pending"
+    Approved = "Approved"
+    Rejected = "Rejected"
+
 
 # Enums
 class Gender(Enum):
@@ -91,7 +100,31 @@ def register_file_path_listener(model, file_fields):
     @event.listens_for(model, "after_insert")
     @event.listens_for(model, "after_update")
     def file_path_listener(mapper, connection, target):
-        organization_id = getattr(target, "organization_id", None)
+        print("target:: ",target)
+        print(f"model:: {model}")
+        # 1️⃣ Look up organization_id from employees table
+        if model  == Employee:
+             org_id_row = connection.execute(
+                select(Employee.organization_id)
+                .where(Employee.id == target.id)
+            ).first()
+        elif model == User:
+            # we already have organization_id on the User record:
+            org_id_row = (target.organization_id,)
+        
+        else:
+            org_id_row = connection.execute(
+                select(Employee.organization_id)
+                .where(Employee.id == target.employee_id)
+            ).first()
+    
+           
+            
+
+        if not org_id_row or not org_id_row[0]:
+            raise RuntimeError(f"Cannot determine organization_id for {model.__tablename__} id={target.id}")
+
+        organization_id = org_id_row[0]
         uploader_id = getattr(target, "_uploaded_by_id", None)
         record_type = model.__tablename__
         
@@ -170,6 +203,8 @@ def register_file_path_listener(model, file_fields):
         When a record is deleted, remove all associated FileStorage records.
         """
         organization_id = getattr(target, "organization_id", None)
+        if organization_id is None and hasattr(target, "employee"):
+            organization_id = getattr(target.employee, "organization_id", None)
         record_type = model.__tablename__
         delete_stmt = FileStorage.__table__.delete().where(
             (FileStorage.record_id == target.id) &
@@ -212,6 +247,7 @@ class User(BaseModel):
     image_path = Column(String, nullable=True)  # Path to the facial image for authentication
     last_login = Column(DateTime(timezone=True), nullable=True)
     login_attempts = Column(Integer, default=0)
+    tourCompleted = Column(Boolean, default=True)
     
 
     organization = relationship("Organization", back_populates="users")
@@ -291,6 +327,27 @@ class Employee(BaseModel):
     employment_history = relationship("EmploymentHistory", back_populates="employee", cascade="all, delete-orphan")
     emergency_contacts = relationship("EmergencyContact", back_populates="employee", cascade="all, delete-orphan")
     next_of_kins = relationship("NextOfKin", back_populates="employee", cascade="all, delete-orphan")
+     # Add relationship for EmployeeDataInput
+    data_inputs = relationship(
+        "EmployeeDataInput",
+        back_populates="employee",
+        cascade="all, delete-orphan"
+    )
+    # Add relationship for SalaryPayment
+    salary_payments = relationship(
+        "SalaryPayment",
+        back_populates="employee",
+        cascade="all, delete-orphan"
+    )
+   
+    # Add relationship for PromotionRequest
+    promotion_requests = relationship(
+        "PromotionRequest",
+        back_populates="employee",
+        cascade="all, delete-orphan"
+    )
+    # payment_details = relationship("EmployeePaymentDetail", back_populates="employee", cascade="all, delete-orphan")
+
     files = relationship(
         "FileStorage",
         primaryjoin="and_(FileStorage.record_id == Employee.id, FileStorage.record_type == 'employees')",
@@ -335,80 +392,109 @@ def create_user_for_employee(mapper, connection, target):
       - _user_image: (Optional) Uploaded user image.
       - _created_by: (Optional) The UUID of the account creator.
     """
+    try:
 
-    # Retrieve transient attributes.
-    # Retrieve the role id that was attached during employee creation.
-    role_id = getattr(target, "_role_id", None)
-    plain_password = getattr(target, "_plain_password", None)
-    user_image = getattr(target, "_user_image", None)
-    created_by = getattr(target, "_created_by", None)
+        # Retrieve transient attributes.
+        # Retrieve the role id that was attached during employee creation.
+        role_id = getattr(target, "_role_id", None)
+        print(f"role_id in event listener: {role_id}   for employee with ID: {target.id}")
+        if not role_id:
+                print(f"⚠️ No role_id found for Employee {target.id}")
+                return
 
-    if role_id is None:
-        # You may log a warning or decide to skip user creation.
-        print(f"[after_insert] Employee {target.id} inserted with no role; skipping user creation.")
-        return
+            # Debug logging
+        print(f"🎯 Processing Employee {target.email} with role {role_id}")
+        plain_password = getattr(target, "_plain_password", None)
+        user_image = getattr(target, "_user_image", None)
+        created_by = getattr(target, "_created_by", None)
 
-    # Generate password if not provided.
-    password_plain = plain_password if plain_password is not None else Security.generate_random_string(6)
+        print(f"[after_insert] Employee {target.id}\n Email: {target.email} \nRole ID: {role_id} \nUser Image: {user_image} \nCreated By: {created_by}")
+        print("\n\n")
+        if role_id is None:
+            # You may log a warning or decide to skip user creation.
+            print(f"[after_insert] Employee {target.id}\n Email: {target.email} \ninserted with no role; skipping user creation.")
+            return
+
+        # Generate password if not provided.
+        password_plain = plain_password if plain_password is not None else Security.generate_random_string(6)
 
 
-    # Generate a username from the employee’s first name plus 4 random digits.
-    username = f"{target.email}"
-    hashed_pw = global_security.hash_password(password_plain)
+        # Generate a username from the employee’s first name plus 4 random digits.
+        username = f"{target.email}"
+        hashed_pw = global_security.hash_password(password_plain)
 
-    
-    user_table = User.__table__
-    # Check if a User record for this Employee (by email and organization) already exists.
-    existing = connection.execute(
-        user_table.select().where(
-            (user_table.c.email == target.email) &
-            (user_table.c.organization_id == target.organization_id)
-        )
-    ).fetchone()
-
-    # Prepare the values to sync.
-    sync_values = {
-        "email": target.email,
-        "organization_id": target.organization_id,
-        "image_path": target.profile_image_path,
-        "role_id": role_id,
-    }
-    
-    if existing:
-        # # Optionally log or update instead of inserting
-        # print(f"User already exists for Employee {target.id}; skipping creation.")
-        # return
-        # If a user already exists, update the record.
-        connection.execute(
-            update(user_table)
-            .where(
+        
+        user_table = User.__table__
+        # Check if a User record for this Employee (by email and organization) already exists.
+        existing = connection.execute(
+            user_table.select().where(
                 (user_table.c.email == target.email) &
                 (user_table.c.organization_id == target.organization_id)
             )
-            .values(**sync_values)
-        )
-        print(f"[after_insert] Existing User record updated for Employee {target.id}.")
-        return {"data": f"User record updated for Employee {target.id}."}
-    
-    else:
-        ins_stmt = user_table.insert().values(
-            username=username,
-            email=target.email,
-            hashed_password=hashed_pw,
-            role_id=role_id,
-            organization_id=target.organization_id,
-            is_active=True,
-            image_path = user_image,
-            created_by = created_by
-            
-        )
-        connection.execute(ins_stmt)
+        ).fetchone()
 
-        # In a production system, send the plain password securely (or force a reset).
-        print(
-            f"User created for Employee {target.id}: username '{username}' with initial password '{password_plain}'"
-        )
-        return {"data": f"User created for Employee {target.id}: username '{username}' with initial password '{password_plain}'"}
+        # Prepare the values to sync.
+        sync_values = {
+            "email": target.email,
+            "organization_id": target.organization_id,
+            "image_path": target.profile_image_path,
+            "role_id": role_id,
+        }
+        
+        if existing:
+            # # Optionally log or update instead of inserting
+            # print(f"User already exists for Employee {target.id}; skipping creation.")
+            # return
+            # If a user already exists, update the record.
+            connection.execute(
+                update(user_table)
+                .where(
+                    (user_table.c.email == target.email) &
+                    (user_table.c.organization_id == target.organization_id)
+                )
+                .values(**sync_values)
+            )
+            print(f"[after_insert] Existing User record updated for Employee {target.id}.")
+            return {"data": f"User record updated for Employee {target.id}."}
+        
+        else:
+            ins_stmt = user_table.insert().values(
+                username=username,
+                email=target.email,
+                hashed_password=hashed_pw,
+                role_id=role_id,
+                organization_id=target.organization_id,
+                is_active=True,
+                image_path = user_image,
+                created_by = created_by
+                
+            )
+            connection.execute(ins_stmt)
+            
+            # upsert = pg_insert(user_table).values(
+            # username=target.email,
+            # email=target.email,
+            # hashed_password=hashed_pw,
+            # role_id=role_id,
+            # organization_id=target.organization_id,
+            # is_active=True,
+            # image_path=user_image,
+            # created_by=created_by
+            # ).on_conflict_do_update(
+            # constraint="users_username_key",   # or index_elements=['username']
+            # set_=sync_values
+            # )
+            # connection.execute(upsert)
+
+            # In a production system, send the plain password securely (or force a reset).
+            print(
+                f"User created | Upserted for Employee {target.id}: username '{username}' with initial password '{password_plain}'"
+            )
+            return {"data": f"User created | Upserted for Employee {target.id}: username '{username}' with initial password '{password_plain}'"}
+    except Exception as e:
+        print(f"🔥 Error creating user: {str(e)}")
+        raise  # Re-raise to ensure transaction rollback
+
 
 register_file_path_listener(Employee, ['profile_image_path'])
 
@@ -518,8 +604,8 @@ class EmergencyContact(BaseModel):
     employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
     name = Column(String, nullable=False)
     relation = Column(String, nullable=False)
-    phone = Column(String, nullable=False)
-    address = Column(String, nullable=True)
+    emergency_phone = Column(String, nullable=False)
+    emergency_address = Column(String, nullable=True)
     details = Column(JSONB, nullable=True)
 
     employee = relationship("Employee", back_populates="emergency_contacts")
@@ -531,8 +617,8 @@ class NextOfKin(BaseModel):
     employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
     name = Column(String, nullable=False)
     relation = Column(String, nullable=False)
-    phone = Column(String, nullable=False)
-    address = Column(String, nullable=True)
+    nok_phone = Column(String, nullable=False)
+    nok_address = Column(String, nullable=True)
     details = Column(JSONB, nullable=True)
  
     employee = relationship("Employee", back_populates="next_of_kins")
@@ -574,6 +660,8 @@ class EmployeePaymentDetail(BaseModel):
     # Relationships
     employee = relationship("Employee", backref="payment_details")
 
+    
+
 
 ###################################
 # 3. Promotion Request Model
@@ -599,6 +687,26 @@ class PromotionRequest(BaseModel):
     employee = relationship("Employee")
     current_rank = relationship("Rank", foreign_keys=[current_rank_id])
     proposed_rank = relationship("Rank", foreign_keys=[proposed_rank_id])
+
+
+
+###################################
+#Model for Saving employee data input [save, update] requests
+class EmployeeDataInput(BaseModel):
+    __tablename__ = "employee_data_inputs"
+
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.id", ondelete="CASCADE"), nullable=False)
+    organization_id= Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)  # ← ensure this exists
+    data = Column(JSONB, nullable=False)  # JSON field to store the input data
+    request_type = Column(String, nullable=False)  # e.g., "save", "update"
+    request_date = Column(DateTime(timezone=True), server_default=func.now())
+    status = Column(String, nullable=False, default=RequestStatus.Pending.value)  # e.g., "Pending", "Approved", "Rejected"
+    comments = Column(String, nullable=True)  # Optional comments from HR or admin
+    data_type = Column(String, nullable=False)  # e.g., "bio_data", "employment_history", etc.
+
+    # Relationships
+    employee = relationship("Employee", back_populates="data_inputs")
+    organization = relationship("Organization")
 
 
 ###################################

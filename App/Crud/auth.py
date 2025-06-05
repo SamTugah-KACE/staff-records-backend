@@ -237,9 +237,9 @@ async def authenticate_user(
         "iat": now_ts,
         "last_activity": now_ts
     }
-    token_str =  global_security.generate_token(data=token_payload, expires_in=3600)
+    token_str =  global_security.generate_token(data=token_payload, expires_in=28800)
     # Set token expiration to 1 hour from now.
-    token_expiration_dt = datetime.datetime.utcnow() + datetime.timedelta(seconds=3600)
+    token_expiration_dt = datetime.datetime.utcnow() + datetime.timedelta(seconds=28800)
     token_expiration = token_expiration_dt.strftime("%a, %d %b %Y %H:%M:%S GMT")  # Token valid for 1 hour
     # token_expiration = (datetime.datetime.utcnow() + datetime.timedelta(seconds=3600)).strftime("%a, %d %b %Y %H:%M:%S GMT")  # Token valid for 1 hour
 
@@ -375,11 +375,12 @@ async def get_current_user(
         db.commit()
         raise HTTPException(status_code=401, detail="Token expired")
     
-    # Check inactivity: if last_activity is older than 15 minutes.
+    # Check inactivity: if last_activity is older than 60 minutes.
     last_activity_ts = token_data.get("last_activity")
     if last_activity_ts:
         inactivity = datetime.datetime.utcnow() - datetime.datetime.fromtimestamp(last_activity_ts)
-        if inactivity > datetime.timedelta(minutes=15):
+        if inactivity > datetime.timedelta(minutes=60):  # 60 minutes of inactivity
+            # Log out the user by deleting the token.
             db.query(Token).filter(Token.token == token_str).delete()
             db.commit()
             raise HTTPException(status_code=401, detail="Logged out due to inactivity")
@@ -434,6 +435,26 @@ def require_permissions(required: List[str]):
         return current_user
     return permission_checker
 
+def require_hr_dashboard(user: User = Depends(get_current_user)):
+    print("\n\n\nuser in require hr dashboard permission in utils.security::: ", user)
+    print(f"\n\n perm then:: {user.role}")
+    """
+    Checks user.role.permissions for 'hr:dashboard', supporting both:
+    - list of strings:    ["hr:dashboard", ...]
+    - dict of flags:      { "hr:dashboard": true, ... }
+    """
+    perms = user.role.permissions or {}
+    allowed = False
+
+    if isinstance(perms, dict):
+        allowed = bool(perms.get("hr:dashboard"))
+    elif isinstance(perms, list):
+        allowed = "hr:dashboard" in perms
+
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Not enough permissions")
+    return user
+
 
 def get_token_data_by_user_id( userid: UUID, db: Session = Depends(get_db)) -> dict:
     """
@@ -461,4 +482,21 @@ def get_token_data_by_user_id( userid: UUID, db: Session = Depends(get_db)) -> d
     else:
         raise HTTPException(status_code=400, detail=f"No existing Token Data for the User with ID '{userid}'")
     
-   
+
+
+
+
+def ensure_hr_dashboard_ws(user: User):
+    """
+    Raise WebSocketDisconnect if user lacks 'hr:dashboard' permission.
+    """
+    print("\n\nuser object:: ", user)
+    perms = user.role.permissions or {}
+    ok = False
+    if isinstance(perms, dict):
+        ok = bool(perms.get("hr:dashboard"))
+    elif isinstance(perms, list):
+        ok = "hr:dashboard" in perms
+    if not ok:
+        raise WebSocketDisconnect(code=status.WS_1008_POLICY_VIOLATION)
+    return True

@@ -67,7 +67,7 @@ def get_primary_logo(self, logos: dict) -> str:
 # --------------------------
 # Helper: Build Email Template
 # --------------------------
-def build_account_email_html(self, row_data: dict, org_acronym: str, logo_url: str, login_href: str, pwd: str) -> str:
+def build_account_email_html(row_data: dict, org_acronym: str, logo_url: str, login_href: str, pwd: str) -> str:
     """
     Build a dynamic HTML email template for account creation.
     The logo appears on top responsively, then a personalized salutation, account details, and a styled login button.
@@ -209,12 +209,13 @@ SYNONYMS_MAP = {
     # For emergency contacts and next of kin, "name" is already generic.
     "name": {"name", "full name", "Full Name"},
     "relation": {"relation", "relationship", "kinship", "relation to employee", "relationship to employee"},
-    "address": {"address", "location", "residence", "home address", "contact address", "address (location)", "address (residence)", "address (home address)", "address (contact address)"},
+    "emergency_address": {"emergency_address", "emergency address", "emergency location","emergency_location", "emergency_residence", "emergency residence","emergency home address", "emergency_home_address","emergency contact address", "emergency_contact_address",  "emergency_address(location)"},
     "phone": {"phone", "contact_number", "mobile", "cell", "telephone", "phone number", "contact number", "mobile number", "cell number", "telephone number"},
     "company": {"company", "employer", "organization", "company name", "employer name", "organization name"},
     # For NextOfKin and EmergencyContact:
-    "phone": {"phone", "contact_number", "mobile", "cell", "telephone"},
-    
+    "emergency_phone": {"emergency phone", "emergency_phone", "emergency number", "emergency_number", "emergency mobile", "emergency_mobile", "emergency cell", "emergency_cell", "emergency telephone", "emergency_telephone"},
+    "nok_phone": {"nok phone", "nok_phone", "nok number", "nok_number", "nok mobile", "nok_mobile", "nok cell", "nok_cell", "nok telephone", "nok_telephone"},
+    "nok_address": {"nok_address", "nok address", "nok location","nok_location", "nok_residence", "nok residence","nok home address", "nok_home_address","nok contact address", "nok_contact_address",  "nok_address(location)"},
 }
 
 
@@ -488,8 +489,8 @@ class BulkInsertService:
         "academic_qualification": {"degree", "institution", "year_obtained", "details", "certificate_path"},
         "professional_qualification": {"qualification_name", "institution", "year_obtained", "details", "license_path"},
         "employment_history": {"job_title", "company", "start_date", "end_date", "details", "documents_path"},
-        "emergency_contact": {"name", "relation", "phone", "address", "details"},
-        "next_of_kin": {"name", "relation", "phone", "address", "details"},
+        "emergency_contact": {"name", "relation", "emergency_phone", "emergency_address", "details"},
+        "next_of_kin": {"name", "relation", "nok_phone", "nok_address", "details"},
         "salary_payment": {"amount", "currency", "payment_date", "payment_method", "transaction_id", "status", "approved_by"},
         "employee_payment_detail": {"payment_mode", "bank_name", "account_number", "mobile_money_provider", "wallet_number", "additional_info", "is_verified"},
         "employee_type": {"type_code", "description", "default_criteria"},

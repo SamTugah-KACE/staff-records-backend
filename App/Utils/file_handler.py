@@ -3,7 +3,7 @@ from fastapi import UploadFile, HTTPException
 import boto3
 from botocore.exceptions import NoCredentialsError, ClientError
 from google.cloud import storage
-from Utils.config import DevelopmentConfig
+from Utils.config import DevelopmentConfig, get_config
 import os
 from io import BytesIO
 from fastapi.responses import FileResponse
@@ -17,7 +17,8 @@ import json
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-settings = DevelopmentConfig()
+# settings = DevelopmentConfig()
+settings = get_config()
 
 # Helper function to validate file extensions
 def validate_file_type(file: UploadFile, allowed_extensions: list):
@@ -151,29 +152,58 @@ async def delete_file_from_local(file_path: str):
 
 # client = get_gcs_client()
 
+# def get_gcs_client():
+#     # Get the path to the Google Cloud API JSON file from an environment variable
+#     # Check if the GOOGLE_APPLICATION_CREDENTIALS file exists.
+#     gcloud_credentials_path = settings.GOOGLE_APPLICATION_CREDENTIALS if hasattr(settings, "GOOGLE_APPLICATION_CREDENTIALS") else None
+    
+#     # print("path: ", gcloud_credentials_path)
+#     # print(os.path.exists(gcloud_credentials_path))
+    
+#     if gcloud_credentials_path and os.path.exists(gcloud_credentials_path):
+#         with open(gcloud_credentials_path) as f:
+#             credentials_info = json.load(f)
+#     else:
+#         credentials_info = settings.GCS_CREDENTIALS
+#         if not credentials_info or "private_key" not in credentials_info:
+#             raise ValueError("Invalid or missing GCS credentials.")
+
+#     return storage.Client.from_service_account_info(
+#         credentials_info,
+#         project=credentials_info.get("project_id")
+#     )
+
+# client = get_gcs_client()
+
+
 def get_gcs_client():
-    # Get the path to the Google Cloud API JSON file from an environment variable
-    # Check if the GOOGLE_APPLICATION_CREDENTIALS file exists.
-    gcloud_credentials_path = settings.GOOGLE_APPLICATION_CREDENTIALS if hasattr(settings, "GOOGLE_APPLICATION_CREDENTIALS") else None
-    
-    # print("path: ", gcloud_credentials_path)
-    # print(os.path.exists(gcloud_credentials_path))
-    
-    if gcloud_credentials_path and os.path.exists(gcloud_credentials_path):
-        with open(gcloud_credentials_path) as f:
-            credentials_info = json.load(f)
-    else:
-        credentials_info = settings.GCS_CREDENTIALS
-        if not credentials_info or "private_key" not in credentials_info:
-            raise ValueError("Invalid or missing GCS credentials.")
+    """
+    Return a GCS client or None on any connection error.
+    """
+    try:
+        creds = settings.GCS_CREDENTIALS
+        client = storage.Client.from_service_account_info(
+            creds, project=creds.get("project_id")
+        )
+        # quick check
+        _ = list(client.list_buckets(page_size=1))
 
-    return storage.Client.from_service_account_info(
-        credentials_info,
-        project=credentials_info.get("project_id")
-    )
+        print("client from file_handler:: ", client)
+        return client
+    except Exception as e:
+        logger.warning(f"GCS init failed, skipping GCS usage: {e}")
+        return None
 
-client = get_gcs_client()
+class GCSClientWrapper:
+    _client = None
 
+    @classmethod
+    def client(cls):
+        if cls._client is None:
+            cls._client = get_gcs_client()
+        return cls._client
+
+gcs_client = GCSClientWrapper.client()
 
 
 def upload_file_to_gcs(file: UploadFile, folder:str, bucket_name=settings.BUCKET_NAME):

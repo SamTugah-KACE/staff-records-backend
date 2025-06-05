@@ -2,8 +2,9 @@ import json
 import os
 from pydantic import  Field, EmailStr, field_validator
 from typing import Any, Dict, List, Optional
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 import secrets
+from functools import lru_cache
 
 
 class BaseConfig(BaseSettings):
@@ -17,6 +18,13 @@ class BaseConfig(BaseSettings):
     ALGORITHM: str = "HS256"
     COOKIE_REFRESH_EXPIRE = 290500
 
+    # … existing fields …
+    API_BASE_URL: str = Field(
+        "http://localhost:8000",
+        env="API_BASE_URL",
+        description="Public base URL of this API, e.g. https://api.myapp.com",
+    )
+    
     # Database Configurations
     DATABASE_URL: str = Field("postgresql://postgres:password@localhost/records_db", env="DATABASE_URL", description="Database connection string.")
 
@@ -34,11 +42,7 @@ class BaseConfig(BaseSettings):
     FACIAL_AUTH_API_TIMEOUT:int = 120  # 120 seconds
 
 
-    # Email Configurations
-    # SMTP_SENDER_EMAIL: EmailStr = Field("dev.aiti.com.gh@gmail.com", env="SMTP_SENDER_EMAIL", description="Sender email address for SMTP.")
-    # SMTP_SENDER_PASSWORD: str = Field("", env="SMTP_SENDER_PASSWORD", description="Password for the SMTP sender email.")
-    # SMTP_HOST: str = Field("smtp.gmail.com", env="SMTP_HOST", description="SMTP host.")
-    # SMTP_PORT: int = Field(587, env="SMTP_PORT", description="SMTP port.")
+   
     
     MAIL_USERNAME: str =Field(..., env="MAIL_USERNAME")
     MAIL_PASSWORD: str =Field(..., env="MAIL_PASSWORD") #palvpbokbnisspps
@@ -54,30 +58,7 @@ class BaseConfig(BaseSettings):
     # Logging
     LOG_LEVEL: str = Field("INFO", env="LOG_LEVEL", description="Logging level (DEBUG, INFO, WARNING, ERROR).")
 
-    # Role Permissions
-    # DEFAULT_PERMISSIONS: Dict[str, Dict[str, bool]] = Field(
-    #     default={
-    #         "staff": {
-    #             "create_task": True,
-    #             "view_task": True,
-    #             "update_task": False,
-    #             "delete_task": False,
-    #         },
-    #         "manager": {
-    #             "create_task": True,
-    #             "view_task": True,
-    #             "update_task": True,
-    #             "delete_task": False,
-    #         },
-    #         "admin": {
-    #             "create_task": True,
-    #             "view_task": True,
-    #             "update_task": True,
-    #             "delete_task": True,
-    #         },
-    #     },
-    #     description="Default permissions for user roles.",
-    # )
+   
 
     # Production-ready seed data for roles and their permissions.
     DEFAULT_ROLE_PERMISSIONS: List[Dict[str, Any]] = Field(
@@ -96,6 +77,17 @@ class BaseConfig(BaseSettings):
             "hr:dashboard",
             "admin:dashboard",
             "hr:dashboard:settings",
+        ],
+    },
+    {
+        "name": "Manager",
+        "permissions": [
+            "employee:read",
+            "employee:update",
+            "role:manage",
+            "audit:read",
+            "user:dashboard",
+            "user:dashboard:settings",
         ],
     },
     {
@@ -191,6 +183,24 @@ class BaseConfig(BaseSettings):
         "permissions": [
             "employee:read",
             "staff:dashboard",
+        ],
+    },
+    
+     {
+        "name": "Staff",
+        "permissions": [
+            "staff:read",
+            "staff:dashboard",
+        ],
+    },
+
+     {
+        "name": "HoD",
+        "permissions": [
+            "hod:dashboard",
+            "staff:list:read",
+            "staff:list:update",
+            "staff:leave:manage",
         ],
     },
     
@@ -357,6 +367,7 @@ class BaseConfig(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"  # Allow extra fields in the config
 
 
 class DevelopmentConfig(BaseConfig):
@@ -366,8 +377,8 @@ class DevelopmentConfig(BaseConfig):
     DEBUG: bool = True
     LOG_LEVEL: str = "DEBUG"
     BUCKET_NAME: str = Field("", env="BUCKET_NAME", description="Google Cloud Storage bucket name.")
-    GOOGLE_APPLICATION_CREDENTIALS:str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "service_account.json")
-    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = r'service_account.json'
+    # GOOGLE_APPLICATION_CREDENTIALS:str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "service_account.json")
+    # os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = r'service_account.json'
 
 class ProductionConfig(BaseConfig):
     """
@@ -375,9 +386,27 @@ class ProductionConfig(BaseConfig):
     """
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
-    BUCKET_NAME: str = Field("", env="BUCKET_NAME", description="Google Cloud Storage bucket name.")
-    GOOGLE_APPLICATION_CREDENTIALS:str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "service_account.json")
-    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = r'service_account.json'
+    GCS_BUCKET: str = Field("developers-bucket", env="BUCKET_NAME", description="Google Cloud Storage bucket name.")
+    BUCKET_NAME: str = Field("developers-bucket", env="BUCKET_NAME", description="Google Cloud Storage bucket name.")
+    # GOOGLE_APPLICATION_CREDENTIALS:str = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "service_account.json")
+    # os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = r'service_account.json'
+    #AWS S3
+    AWS_ACCESS_KEY: str = Field(..., env="AWS_ACCESS_KEY", description="AWS Access Key ID.")
+    AWS_SECRET_KEY: str = Field(..., env="AWS_SECRET_KEY", description="AWS Secret Access Key.")
+    AWS_REGION: str = Field(..., env="AWS_REGION", description="AWS Region.")
+    AWS_S3_BUCKET: str = Field(..., env="AWS_BUCKET_NAME", description="AWS S3 Bucket name.")
+
+    #Local File Storage
+    STORAGE_ROOT:str      = os.getenv("STORAGE_ROOT", "/mnt/data/file_storage")
+
+    # Arkesel SMS
+    ARKESEL_API_KEY: str = Field(..., env="ARKESEL_API_KEY", description="Arkesel API key for SMS service.")
+    ARKESEL_SENDER_ID: str = Field(..., env="ARKESEL_SENDER_ID", description="Sender ID for Arkesel SMS service.")
+    ARKESEL_API_URL: str = Field(..., env="ARKESEL_API_URL", description="Arkesel API URL for SMS service.")
+    ARKESEL_TIMEOUT: int = Field(10, env="ARKESEL_TIMEOUT", description="Timeout for Arkesel API requests in seconds.")
+    ARKESEL_API_RETRY_ATTEMPTS: int = Field(3, env="ARKESEL_API_RETRY_ATTEMPTS", description="Number of retry attempts for Arkesel API requests.")
+    ARKESEL_USE_CASE: str = Field(..., env="ARKESEL_USE_CASE", description="Use case for Arkesel SMS service.")
+
 
 
 class TestingConfig(BaseConfig):
@@ -388,7 +417,7 @@ class TestingConfig(BaseConfig):
     DATABASE_URL: str = "sqlite:///./test.db"
     LOG_LEVEL: str = "DEBUG"
 
-
+@lru_cache()
 def get_config():
     """
     Load configuration based on the environment.

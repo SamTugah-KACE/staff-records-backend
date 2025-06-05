@@ -1,6 +1,7 @@
 import secrets
-from fastapi import HTTPException, status
-# from Models.models import User
+from fastapi import HTTPException, WebSocketDisconnect, status, Depends
+from fastapi.security import OAuth2PasswordBearer
+from Models import models
 from passlib.context import CryptContext
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
@@ -8,6 +9,10 @@ from jose import jwt, JWTError
 from typing import Any, Dict, Optional
 import logging
 from .config import DevelopmentConfig
+from database.db_session import get_db
+
+
+
 # Offload blocking operations to a threadpool in an async context.
 from starlette.concurrency import run_in_threadpool
 
@@ -21,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 # Try to use cachetools for TTL caching; if unavailable, fall back to a plain dict.
 try:
@@ -108,21 +114,7 @@ class Security:
         encoded_jwt = jwt.encode(to_encode, self.secret_key, algorithm=self.algorithm)
         return encoded_jwt
     
-    # @staticmethod
-    # def generate_token(data: Dict, expires_in: int = 3600) -> str:
-    #     """
-    #     Generates a JWT token for authentication.
-        
-    #     :param data: Dictionary containing user information (e.g., user_id, role)
-    #     :param expires_in: Token expiration time in seconds (default: 1 hour)
-    #     :return: Encoded JWT token as a string
-    #     """
-    #     to_encode = data.copy()
-    #     expiration = datetime.utcnow() + timedelta(seconds=expires_in)
-    #     to_encode.update({"exp": expiration})
-    #     token = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
-        
-    #     return token
+    
 
     def generate_token(self, data: Dict[str, Any], expires_in: int = 3600) -> str:
         """
@@ -155,6 +147,45 @@ class Security:
         encoded_jwt = jwt.encode(to_encode, self.secret_key, algorithm=self.algorithm)
         return encoded_jwt
     
+    def get_current_user(self, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+        credentials_exception = HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        try:
+            payload = jwt.decode(token, self.secret_key, algorithms=[self.algorithm])
+            user_id: str = payload.get("sub")
+            if user_id is None:
+                raise credentials_exception
+        except JWTError:
+            raise credentials_exception
+        user = db.query(models.User).filter(models.User.id == user_id).first()
+        if not user:
+            raise credentials_exception
+        return user
+
+
+    async def get_current_user_ws(self, token: str, db: Session):
+        """
+        Decode JWT 'sub' → user.id, fetch User.
+        Raises if invalid.
+        """
+        try:
+            print(f"\n\nTOKEN: {token}   \n\n")
+            payload = jwt.decode(token, self.secret_key, algorithms=[self.algorithm])
+            print("payload:: ", payload)
+            user_id: str = payload.get("user_id")
+            print("user_id: ", user_id)
+            if not user_id:
+                raise JWTError()
+        except JWTError:
+            raise WebSocketDisconnect(code=status.WS_1008_POLICY_VIOLATION)
+
+        user = db.query(models.User).filter(models.User.id == user_id).first()
+        if not user:
+            raise WebSocketDisconnect(code=status.WS_1008_POLICY_VIOLATION)
+        return user
 
     # @staticmethod
     # def decode_token(token_str: str):

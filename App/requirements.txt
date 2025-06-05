@@ -37,5 +37,8 @@ redis
 celery
 rapidfuzz
 openpyxl
+websockets
+reportlab
+PyPDF2
 # apscheduler-redis
 # git+https://github.com/agronholm/apscheduler_redis_jobstore.git#egg=apscheduler_redis_jobstore

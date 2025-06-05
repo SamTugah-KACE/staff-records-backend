@@ -65,17 +65,37 @@ def get_organization_acronym(org_name: str, stopwords: Optional[Set[str]] = None
     Raises:
         ValueError: If org_name is not a nonempty string.
     """
+
     if not isinstance(org_name, str) or not org_name.strip():
         raise ValueError("Organization name must be a nonempty string.")
 
+   
     # Default stopwords (all lowercase).
     if stopwords is None:
         stopwords = {"of", "the", "and", "for", "in", "at", "by", "a", "an"}
+    
+    
 
     # Split the organization name by whitespace.
     tokens = org_name.strip().split()
     if not tokens:
         return ""
+    
+    #if org_name is a single token or the token is hyphenated, return its entire word with first letter capitalized.
+    # If there's only one token, return it with first letter capitalized.
+    # If the token is hyphenated, return the first letter of each part capitalized.
+    if len(tokens) == 0:
+        return ""
+    # If there's only one token, return it with first letter capitalized.
+    if len(tokens) == 1:
+        return tokens[0][0].upper() + tokens[0][1:].lower()
+    
+    #if the token is two but hyphenated, return the entire word with first letter capitalized.
+    if len(tokens) == 2 and "-" in tokens[0]:
+        # Split on hyphen and take first letters of each part.
+        sub_tokens = [sub for sub in tokens[0].split("-") if sub]
+        return "".join(sub[0].upper() for sub in sub_tokens)
+    
 
     # Process the primary token (first token)
     first_token = tokens[0]

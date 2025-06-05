@@ -2,19 +2,45 @@ import asyncio
 import datetime
 import json
 from typing import Dict, List
-from fastapi import FastAPI, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from Apis.default import create_default
 from Apis.routers import api
-from Models.models import Dashboard
+from Service.data_input_handlers import autodiscover_handlers
+from Models.models import Dashboard, User, Employee, EmployeeDataInput
+from Models.Tenants.role import Role
 from database.db_session import get_db, temp_db, SessionLocal
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from notification.socket import manager
 from Utils.daily_checks import schedule_daily_checks
 import logging
+from Utils.config import config
+from seed_data import seed_superadmin
+from Utils.security import Security
+from sqlalchemy import and_, select
+from Utils.config import ProductionConfig
+
+
+# src/api/ws_employee.py
+
+# from Apis.deps_ws import get_current_user_ws
+# from Service.employee_aggregator import get_employee_full_record
+from Crud.auth import require_permissions, require_hr_dashboard, ensure_hr_dashboard_ws
+from Models.models import Employee
+
+
+
+settings = ProductionConfig()
+
+
+
+# # Initialize the global Security instance.
+# # In a multi-tenant system sharing one schema, a common secret key is often used.
+global_security = Security(secret_key=settings.SECRET_KEY, algorithm=settings.ALGORITHM, token_expire_minutes=60)
+
 
 
 logger = logging.getLogger(__name__)
@@ -32,7 +58,9 @@ app = FastAPI(
 
 
 # Static Files (if needed)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=config.STORAGE_ROOT), name="static")
+
 
 # CORS Configuration
 origins = [
@@ -153,6 +181,124 @@ async def websocket_chat(websocket: WebSocket, organization_id: str, user_id: st
                 })
     except WebSocketDisconnect:
         manager.disconnect(organization_id, websocket)
+    
+
+def extract_attachments(data: dict) -> list[dict]:
+    """
+    Only consider items whose key contains 'path' as attachments.
+    Values may be:
+      - dict of {filename: url}
+      - JSON‐encoded dict strings
+    """
+    attachments = []
+    for key, val in data.items():
+        if "path" not in key.lower():
+            continue
+
+        # Case 1: native dict
+        if isinstance(val, dict):
+            for fn, url in val.items():
+                attachments.append({"filename": fn, "url": url})
+            continue
+
+        # Case 2: JSON‐encoded dict string
+        if isinstance(val, str) and val.strip().startswith("{") and val.strip().endswith("}"):
+            try:
+                parsed = json.loads(val)
+                if isinstance(parsed, dict):
+                    for fn, url in parsed.items():
+                        attachments.append({"filename": fn, "url": url})
+                    continue
+            except json.JSONDecodeError:
+                pass
+
+    return attachments
+
+@app.websocket("/ws/employee-inputs")
+async def ws_employee_inputs(
+    websocket: WebSocket,
+    token: str = Query(...),
+    organization_id: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    # 1) Authenticate + authorize
+    user = await global_security.get_current_user_ws(token, db)
+
+    print("user role_id in websocket main:: ", user.role_id)
+    print("user organization in websocket main:: ", user.organization_id)
+    ensure_hr_dashboard_ws(user)
+    if str(user.organization_id) != organization_id:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    # 2) Accept connection
+    await manager.connect(organization_id, websocket)
+
+    try:
+        # 3) Fetch inputs + employee in one go
+        rows = (
+            db.query(EmployeeDataInput)
+              .options(joinedload(EmployeeDataInput.employee))
+              .join(Employee, Employee.id == EmployeeDataInput.employee_id)
+              .filter(EmployeeDataInput.organization_id == organization_id)
+              .all()
+        )
+
+        # 4) Batch‐fetch related Users + roles
+        emails = {row.employee.email for row in rows}
+        users = (
+            db.query(User)
+              .options(joinedload(User.role))
+              .filter(
+                  and_(
+                      User.organization_id == organization_id,
+                      User.email.in_(list(emails))
+                  )
+              )
+              .all()
+        )
+        user_map = {u.email: u for u in users}
+
+        # 5) Build and broadcast payload
+        payload = []
+        for row in rows:
+            print("employeeDataInput rowID: ", row.id)
+            print("row.data: ", row.data)
+            emp = row.employee
+            full_name = " ".join(filter(None, [emp.first_name, emp.middle_name, emp.last_name]))
+            user_rec  = user_map.get(emp.email)
+            role_name = user_rec.role.name if user_rec and user_rec.role else "N/A"
+            attachments = extract_attachments(row.data or {})
+
+            payload.append({
+                "id": str(row.id),
+                "Account Name": full_name,
+                "Role":         role_name,
+                "Data": row.data,
+                "Issues":       "Request Approval",
+                "Attachments":  attachments,
+                "Actions":      "Pending"
+            })
+
+        await manager.broadcast(organization_id, json.dumps(payload))
+
+        # 6) Keep-alive ping loop
+        while True:
+            await websocket.receive_text()
+
+    except WebSocketDisconnect:
+        manager.disconnect(organization_id, websocket)
+
+    except Exception:
+        import logging; logging.exception("Unexpected WS error")
+        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+
+
+
+
+
+
+
 
 # Exception Handlers
 @app.exception_handler(StarletteHTTPException)
@@ -184,8 +330,14 @@ async def on_startup():
         db: Session = SessionLocal()
         try:
             create_default(db=db)
+
         finally:
             db.close()
+        
+        # Seed the superadmin if not already present
+        await seed_superadmin()
+
+        autodiscover_handlers()
         
         # Start the APScheduler job for daily checks.
         schedule_daily_checks()

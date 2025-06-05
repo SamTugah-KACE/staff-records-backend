@@ -23,6 +23,10 @@ import io
 
 import urllib.parse
 
+from Service.sms_service import BaseSMSService
+from Service.storage_service import BaseStorage
+from Utils.sms_utils import get_sms_service
+from Utils.storage_utils import get_storage_service
 from Models.Tenants.organization import (Branch, Organization, Rank)
 from Models.dynamic_models import EmployeeDynamicData, BulkUploadError
 from Models.models import (Employee, User, Department, EmployeePaymentDetail,
@@ -37,18 +41,18 @@ from datetime import datetime, date, timedelta
 import re
 from Crud.adv import RoleCache
 from Utils.util import Validator, get_organization_acronym
-from Utils.config import DevelopmentConfig
+from Utils.config import BaseConfig, DevelopmentConfig, get_config
 from Utils.security import Security
 import aiohttp
 from Service.gcs_service import GoogleCloudStorage
-from Service.email_service import EmailService, get_email_template
+from Service.email_service import EmailService, get_email_template, get_update_notification_email_template
 from aiohttp import ClientTimeout, FormData
 from rapidfuzz import process, fuzz
 
 
 rate_limiter = RateLimiter(max_attempts=5, period=60)  # 5 attempts per 60 seconds
 
-settings = DevelopmentConfig()
+settings = get_config()
 
 
 
@@ -83,20 +87,20 @@ logger = logging.getLogger(__name__)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Secure Email Configuration
-SMTP_CREDENTIALS = {
-    "sender_email": os.getenv("SMTP_SENDER_EMAIL"),
-    "sender_password": os.getenv("SMTP_SENDER_PASSWORD"),
-    "smtp_host": os.getenv("SMTP_HOST"),
-    "smtp_port": int(os.getenv("SMTP_PORT", 587)),
-}
+# SMTP_CREDENTIALS = {
+#     "sender_email": os.getenv("SMTP_SENDER_EMAIL"),
+#     "sender_password": os.getenv("SMTP_SENDER_PASSWORD"),
+#     "smtp_host": os.getenv("SMTP_HOST"),
+#     "smtp_port": int(os.getenv("SMTP_PORT", 587)),
+# }
 
 
 
-# Default Permissions for Roles
-DEFAULT_PERMISSIONS = {
-    "staff": {"create_task": True, "view_task": True, "update_task": False, "delete_task": False},
-    "manager": {"create_task": True, "view_task": True, "update_task": True, "delete_task": False},
-}
+# # Default Permissions for Roles
+# DEFAULT_PERMISSIONS = {
+#     "staff": {"create_task": True, "view_task": True, "update_task": False, "delete_task": False},
+#     "manager": {"create_task": True, "view_task": True, "update_task": True, "delete_task": False},
+# }
 
 # Constants for Random Username and Password Generation
 CHARACTER_SET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()"
@@ -195,8 +199,8 @@ model_field_map: Dict[str, set] = {
     "academic_qualification": {"degree", "institution", "year_obtained", "details", "certificate_path"},
     "professional_qualification": {"qualification_name", "institution", "year_obtained", "details", "license_path"},
     "employment_history": {"job_title", "company", "start_date", "end_date", "details", "documents_path"},
-    "emergency_contact": {"name", "relation", "phone", "address", "details"},
-    "next_of_kin": {"name", "relation", "phone", "address", "details"},
+    "emergency_contact": {"name", "relation", "emergency_phone", "emergency_address", "details"},
+    "next_of_kin": {"name", "relation", "nok_phone", "nok_address", "details"},
     "salary_payment": {"amount", "currency", "payment_date", "payment_method", "transaction_id", "status", "approved_by"},
     "employee_payment_detail": {"payment_mode", "bank_name", "account_number", "mobile_money_provider", "wallet_number", "additional_info", "is_verified"},
     "employee_type": {"type_code", "description", "default_criteria"},
@@ -232,8 +236,10 @@ SYNONYMS_MAP = {
     "middle_name": {"middle_name", "middle", "mname", "middle name", "middlename", "Middle Name", "Middle Name (Middle Name)", "middle name"},
     "last_name": {"last_name", "last", "lname", "last name", "lastname", "Family Name", "Surname", "Surname (Family Name)", "surname", "family name", "familyname"},
     "title": {"title", "salutation", "prefix", "name prefix", "name prefix (title)", "name prefix (salutation)", "name prefix (prefix)"},
+    "staff_id":{"id", "staff id", "staff_id"},
+    "profile_image_path": {"profile image", "image", "picture", "profile", "profile picture", "profile pic", "pic"},
     "department": {"department", "dept", "division", "section", "unit", "department name", "department name (dept)", "department name (division)", "department name (section)", "department name (unit)"},
-    "role": {"role", "job role", "job", "position", "post", "system role", "job description", "job title", "job title (role)", "job role (role)", "job role (job)", "job title (job)", "job description (role)", "job description (job)", "job title (job title)", "job role (job role)", "job description (job description)"},
+    "role": {"role", "job role", "job", "position","job function", "post", "system role", "designation", "job description", "job title", "job title (role)", "job role (role)", "job role (job)", "job title (job)", "job description (role)", "job description (job)", "job title (job title)", "job role (job role)", "job description (job description)"},
     "rank": {"rank", "grade", "level", "job level", "job grade", "job level (grade)", "job grade (level)", "job grade (grade)", "job level (level)"},
     "employee_type": {"employee type", "employment type", "emp type", "type of employment", "type", "employment type (type)", "employment type (employee type)", "employment type (employment type)", "employment type (emp type)", "employment type (type of employment)"},
     "branch": {"branch", "location", "site", "office", "workplace", "branch name", "branch location", "branch location (site)", "branch location (office)", "branch location (workplace)", "office location", "office location (site)", "office location (branch)", "office location (workplace)", "workplace location", "workplace location (site)", "workplace location (branch)", "workplace location (office)"},
@@ -251,11 +257,18 @@ SYNONYMS_MAP = {
     # For emergency contacts and next of kin, "name" is already generic.
     "name": {"name", "full name", "Full Name"},
     "relation": {"relation", "relationship", "kinship", "relation to employee", "relationship to employee"},
-    "address": {"address", "location", "residence", "home address", "contact address", "address (location)", "address (residence)", "address (home address)", "address (contact address)"},
-    "phone": {"phone", "contact_number", "mobile", "cell", "telephone", "phone number", "contact number", "mobile number", "cell number", "telephone number"},
+    "emergency_address": {"emergency_address", "emergency_location", "emergency address","emergency_residence", "emergency home address", "emergency contact address", "emergency address (location)", "emergency address (residence)", "emergency address (home address)", "emergency address (contact address)"},
+    "emergency_phone": {"emergency_phone", "emergency phone","emergency_contact_number", "emergency_mobile", "emergency_cell", "emergency_telephone", "emergency phone number", "emergency contact number", "emergency mobile number", "emergency cell number", "emergency telephone number"},
     "company": {"company", "employer", "organization", "company name", "employer name", "organization name"},
     # For NextOfKin and EmergencyContact:
-    "phone": {"phone", "contact_number", "mobile", "cell", "telephone"},
+    "nok_phone": {"nok_phone", "nok_contact_number", "nok address","nok_mobile", "nok_cell", "nok_telephone"},
+    "nok_address": {"nok_address", "nok address","nok_location", "nok_residence", "nok home address", "nok contact address", "nok address (location)", "nok address (residence)", "nok address (home address)", "nok address (contact address)"},
+    # For payment details:
+    "payment_mode": {"payment_mode","mode", "method", "payment_method","payment method"},
+    "bank_name": {"bank_name", "bank name"  ,"name of bank", "bank", "name_of_bank"},
+    "account_number": {"account_number", "account number", "account", "account #", "acc", "acc #"},
+    "mobile_money_provider":{"mobile_money_provider", "mobile money provider", "momo provider", "momo_provider", "provider"},
+    "wallet_number": {"wallet_number", "wallet number", "wallet #", "wallet", "momo number", "momo_number", "momo #"},
     
 }
 
@@ -435,6 +448,10 @@ FIELD_SYNONYMS = {
     "email": "email",
     "contact": "contact_info",
     "phone": "contact_info",
+    "mobile": "contact_info",
+    "home address": "contact_info",
+    "residential address": "contact_info",
+    "profile image":"profile_image_path",
     "hire date": "hire_date",
     "termination date": "termination_date",
     "employee type": "employee_type",  # For mapping to the EmployeeType table.
@@ -715,7 +732,9 @@ class UserCRUD:
             # Simply return the first value.
             for key, url in logos.items():
                 if url:
-                    return url
+                    ul = GoogleCloudStorage(bucket_name=settings.BUCKET_NAME).extract_gcs_file_path(url)
+                    print("logo url: ", ul)
+                    return ul
         return "https://example.com/default-logo.png"
 
     # --------------------------
@@ -831,7 +850,7 @@ class UserCRUD:
 
    
 
-    def bulk_insert_crud(self, organization_id: str, file: UploadFile, background_tasks: BackgroundTasks, db: Session) -> dict:
+    def bulk_insert_crud(self, organization_id: str, file: UploadFile, background_tasks: BackgroundTasks, db: Session, sms_svc: BaseSMSService = Depends(get_sms_service), conf: BaseConfig = Depends(get_config)  ) -> dict:
         # (1) Validate file extension.
         if not allowed_file(file.filename):
             raise HTTPException(status_code=400, detail="Only CSV or Excel files are allowed.")
@@ -864,6 +883,7 @@ class UserCRUD:
         # (4) Build an employee_map (lowercase email → employee ID) for linking related sheets.
         employee_map = {}   # email (lowercase) -> employee_id
         employee_list = []  # list of employee IDs in processing order
+        emp_contacts = []
 
         # (5) Determine processing order: process sheets with highest employee field overlap first.
         sheet_order = sorted(
@@ -900,10 +920,17 @@ class UserCRUD:
                             if concept in expected_fields and val is not None:
                                 model_data[concept] = val
                             else:
-                                if any(x in concept for x in ["address", "phone", "contact", "gps"]):
+                                if any(x in concept for x in ["address", "phone", "home address", "residential address","contact", "gps", "number", "mobile", "phone_number", "contact_number", "mobile_number", "telephone", "telephone_number"]):
+                                    if concept in ["phone", "contact", "number", "mobile", "phone_number", "contact_number", "mobile_number", "telephone", "telephone_number"]:
+                                        emp_contacts.append(val)
+
                                     extra_data[concept] = val
+                                    
                         if extra_data:
                             model_data["contact_info"] = extra_data
+                            # emp_contacts = extra_data
+                        
+                        print("\n\nemp_contact:: ", emp_contacts)
                         # Convert date fields.
                         for dcol in ["date_of_birth", "hire_date", "termination_date"]:
                             if dcol in model_data and model_data[dcol] is not None:
@@ -950,17 +977,46 @@ class UserCRUD:
                             model_data.pop("rank", None)
 
                         # --- Process Employee Type ---
-                        if "employee type" in model_data and model_data["employee type"]:
-                            et_val = str(model_data["employee type"]).strip()
-                            et_id = self.process_related_field(db, organization_id, et_val, EmployeeType, "type_code", {})
-                            model_data["employee_type_id"] = et_id
-                            model_data.pop("employee type", None)
-                        elif "employment type" in model_data and model_data["employment type"]:
-                            et_val = str(model_data["employment type"]).strip()
-                            et_id = self.process_related_field(db, organization_id, et_val, EmployeeType, "type_code", {})
-                            model_data["employee_type_id"] = et_id
-                            model_data.pop("employment type", None)
+                        # Check for "employee type" or "employment type" in model_data.
+                        # If found, process it and set employee_type_id.
+                        # If not found, check for "employment type" in model_data.
+                        # If found, process it and set employee_type_id.
+                        # print("is employee type: ", model_data["employee type"])
+                        print("calling employee type: ", model_data) 
+                        print("row_data: ", row_data)
+                        type_key = None
+                        for key in row_data.keys():
+                            if find_standard_concept(key).lower() == "employee_type":
+                                type_key = key
+                                break
+                            
+                        if type_key:
+                            et_val = row_data.get(type_key)
+                            if et_val:
+                                et_val = str(et_val).strip()
+                                print("employee type value: ", et_val)
+                                et_id = self.process_related_field(db, organization_id, et_val, EmployeeType, "type_code", {})
+                                model_data["employee_type_id"] = et_id
+                                model_data.pop(type_key, None)
+                        # if "employee type" in model_data and model_data["employee type"]:
 
+                        #     et_val = str(model_data["employee type"]).strip()
+                        #     print("employee type value: ", et_val)
+                        #     et_id = self.process_related_field(db, organization_id, et_val, EmployeeType, "type_code", {})
+                        #     model_data["employee_type_id"] = et_id
+                        #     model_data.pop("employee type", None)
+                        # elif "employment type" in model_data and model_data["employment type"]:
+                        #     et_val = str(model_data["employment type"]).strip()
+                        #     et_id = self.process_related_field(db, organization_id, et_val, EmployeeType, "type_code", {})
+                        #     model_data["employee_type_id"] = et_id
+                        #     model_data.pop("employment type", None)
+
+                        transient_role_id = None
+                        role_val = None
+
+                        # 1. Dynamic Role Column Detection using Fuzzy Matching
+                        ROLE_SYNONYMS = SYNONYMS_MAP.get('role', {'role'})
+                        print(f"Role synonyms: {ROLE_SYNONYMS}")
                         # --- Process Role ---
                         if "role" in model_data and model_data["role"]:
                             role_val = str(model_data["role"]).strip()
@@ -971,29 +1027,34 @@ class UserCRUD:
                             ).first()
                             if not existing_role:
                                 default_perms = []
-                                if role_val.lower() == "staff":
+                                # if role_val.lower() == "staff":
                                     # Locate the 'Employee' or 'staff' role configuration.
-                                    role_config = next(
-                                        (role_item for role_item in settings.DEFAULT_ROLE_PERMISSIONS
-                                        if role_item["name"].lower() in ("staff","employee")),
-                                        None
-                                    )
-                                    print("role_config: ", role_config)
-                                    if role_config:
-                                        default_perms = role_config.get("permissions", [])
-                                        print("default_perms: ", default_perms)
-                                    # Create new role with default permissions.
-                                    print("creating new role: ", role_val)
-                                    new_role = Role(name=role_val, permissions=default_perms, organization_id=organization_id)
-                                    db.add(new_role)
-                                    db.commit()
-                                    db.refresh(new_role)
-                                    transient_role_id = str(new_role.id)
+                                role_config = next(
+                                    (role_item for role_item in settings.DEFAULT_ROLE_PERMISSIONS
+                                    if (role_val.lower() == role_item["name"].lower()) or (role_val.lower() in role_item["name"].lower()) ),
+                                    None
+                                )
+                                print("role_config: ", role_config)
+                                if role_config:
+                                    default_perms = role_config.get("permissions", [])
+                                    print("default_perms: ", default_perms)
+                                # Create new role with default permissions.
+                                print("creating new role: ", role_val)
+                                new_role = Role(name=role_val, permissions=default_perms, organization_id=organization_id)
+                                db.add(new_role)
+                                db.commit()
+                                db.refresh(new_role)
+                                transient_role_id = str(new_role.id)
                             else:
                                 transient_role_id = str(existing_role.id)
                             model_data.pop("role", None)
                         else:
-                            transient_role_id = self.get_or_create_default_role(db, organization_id)
+                            if not transient_role_id:
+                                # If no role provided, use default role (e.g. "Staff" or "Employee").
+                                # This is a fallback in case the role is not found in the database.
+                                # Locate the 'Employee' or 'staff' role configuration.
+                                transient_role_id = self.get_or_create_default_role(db, organization_id)
+                            # transient_role_id = self.get_or_create_default_role(db, organization_id)
 
                         # --- Process Salary ---
                         if "salary" in model_data and model_data["salary"]:
@@ -1008,9 +1069,10 @@ class UserCRUD:
 
                         # Build the Employee record.
                         record = Employee(**model_data)
-                        if transient_role_id:
-                            setattr(record, "_role_id", transient_role_id)
-                            setattr(record, "_plain_password", transient_pwd)
+                        print("transient_role_id: ", transient_role_id)
+                        # if transient_role_id:
+                        setattr(record, "_role_id", transient_role_id)
+                        setattr(record, "_plain_password", transient_pwd)
                         db.add(record)
                         db.flush()
 
@@ -1060,6 +1122,31 @@ class UserCRUD:
                                 )
                             except Exception as e_email:
                                 print(f"[WARN] Email notification failed for row {index}: {e_email}")
+                        
+                        try:
+                            #send sms notification to employees by extracting phone or contact from contact_info dict
+                            org = db.get(Organization, organization_id)
+                            sender = get_organization_acronym(org.name) if org.name else conf.ARKESEL_SENDER_ID    #getattr(org.name, "sms_sender_id", conf.ARKESEL_SENDER_ID)
+                            use_case= getattr(org, "sms_use_case", conf.ARKESEL_USE_CASE)
+
+                            # print("\n\nemp_contacts for sms: ", emp_contacts)
+                            if emp_contacts:
+                                # Iterate over success_records, send SMS to each
+                                for phone in emp_contacts:
+                                    # print("\nphone: ", phone)
+                                    if phone:
+                                        sms_svc.send(
+                                            phone,
+                                            "employee_created",
+                                            {"first_name": model_data["first_name"], "org_name": org.name, "email": model_data["email"]},
+                                            sender_id=sender,
+                                            use_case=use_case
+                                        )
+                                        print(f"SMS sent to {phone} for employee creation.")
+                                    else:
+                                        print(f"Phone number not found for employee {model_data['first_name']} {model_data['last_name']}")
+                        except Exception as e_sms:
+                            print(f"[WARN] SMS notification failed for row {index}: {e_sms}")
 
                         
 
@@ -1085,6 +1172,7 @@ class UserCRUD:
 
                 # print("\n\nother sheet: ", sheet_name, "\ncolumns: ", df.columns)
                 df.columns = [col.strip().lower() for col in df.columns]
+
                 # Determine best matching model by column overlap.
                 model_choice = "dynamic"
                 max_match = 0
@@ -1130,10 +1218,13 @@ class UserCRUD:
                             if index < len(employee_list):
                                 model_data["employee_id"] = employee_list[index]
                         # If no employee_id is found, skip this record.
+                        else:
+                            print("row empty\n\n", row_data)
 
                         # If the model class is found, add organization_id if applicable.
                         if ModelClass and hasattr(ModelClass, "__table__") and "organization_id" in ModelClass.__table__.columns:
                             model_data["organization_id"] = organization_id
+                        # print("\n\nnon-employee model class: ", ModelClass, "\nmodel_data: ", model_data)
                         # If the model class is not found, use the dynamic model.
                         if ModelClass:
                             record = ModelClass(**model_data)
@@ -1157,6 +1248,7 @@ class UserCRUD:
                         })
                     except Exception as e:
                         db.rollback()
+                        print("\n\nnon-employee models error")
                         error_records.append({
                             "sheet": sheet_name,
                             "row_index": index,
@@ -1378,6 +1470,9 @@ class UserCRUD:
         organization_id: UUID,
         image_file: Optional[UploadFile]=None,
         created_by: Optional[UUID] = None,
+        storage: BaseStorage = Depends(get_storage_service),
+        sms_svc: BaseSMSService = Depends(get_sms_service),
+        config: BaseConfig = Depends(get_config),
     ) -> dict:
         """
         Creates a new user (employee) record from dynamic manager-supplied data.
@@ -1506,9 +1601,13 @@ class UserCRUD:
         if image_file:
             org_acronym = get_organization_acronym(org.name)
             folder = f"organizations/{org_acronym}/user_profiles"
-            gcs = GoogleCloudStorage(bucket_name=settings.BUCKET_NAME)
+            # gcs = GoogleCloudStorage(bucket_name=settings.BUCKET_NAME)
             file_content = await image_file.read()
-            image_url = gcs.upload_to_gcs(files=[{"filename": image_file.filename, "content": file_content}], folder=folder) or ""
+            # image_url = gcs.upload_to_gcs(files=[{"filename": image_file.filename, "content": file_content}], folder=folder) or ""
+            image_url = storage.upload(
+            [{"filename": image_file.filename, "content": file_content, "content_type": image_file.content_type}],
+            folder=folder,
+        )
 
             # If image_url is a dict, select the first available URL.
             if isinstance(image_url, dict):
@@ -1653,6 +1752,25 @@ class UserCRUD:
         email_service = EmailService()
         email_body = get_email_template(user_name, password, org.access_url, org.name, logo)
         await email_service.send_email(background_tasks, recipients=[email], subject="Account Credentials", html_body=email_body)
+
+         # 18. **Send SMS** via injected sms_svc
+        phone = base_employee_data.get("contact_info", {}).get("contact") or base_employee_data.get("contact_info", {}).get("phone") or \
+            base_employee_data.get("contact_info", {}).get("phone_number") or base_employee_data.get("contact_info", {}).get("mobile") or \
+            base_employee_data.get("contact_info", {}).get("mobile_number") or base_employee_data.get("contact_info", {}).get("contact_number") or \
+            base_employee_data.get("contact_info", {}).get("telephone_number") or base_employee_data.get("contact_info", {}).get("telephone")
+        
+        if phone:
+            sender  = get_organization_acronym(org.name) or getattr(org, "sms_sender_id", config.ARKESEL_SENDER_ID)
+            use_case = getattr(org, "sms_use_case", config.ARKESEL_USE_CASE)
+            signin_url = (org.access_url or config.API_BASE_URL) + "/signin"
+            background_tasks.add_task(
+                sms_svc.send,
+                phone,
+                "employee_created",
+                {"first_name": base_employee_data["first_name"], "org_name": org.name, "email": base_employee_data["email"]},
+                sender_id=sender,
+                use_case=use_case
+            )
         
         # Step 19: Log audit events.
         self.log_audit(db, "CREATE", created_by, "employees", employee_record.id)
@@ -1674,7 +1792,10 @@ class UserCRUD:
         username: Optional[str] = None,
         email: Optional[str] = None,
         role_id: Optional[UUID] = None,
-        image_file: Optional[UploadFile] = None
+        image_file: Optional[UploadFile] = None,
+        config: BaseConfig  = Depends(get_config),
+        storage: BaseStorage   = Depends(get_storage_service),
+        sms_svc: BaseSMSService  = Depends(get_sms_service),
     ) -> Dict[str, str]:
         """
         Dynamically updates a user's details while ensuring security, efficiency, and business logic integrity.
@@ -1700,6 +1821,8 @@ class UserCRUD:
         employee = db.query(Employee).filter(Employee.email == user.email).first()
         if not employee:
             raise HTTPException(status_code=404, detail="Associated employee record not found.")
+        
+        
 
         update_fields = {}
 
@@ -1728,6 +1851,8 @@ class UserCRUD:
             # Retrieve existing image from Google Cloud Storage
             gcs = GoogleCloudStorage(bucket_name=settings.BUCKET_NAME)
             image_data = gcs.download_from_gcs(user.image_path) if user.image_path else None
+
+            
 
             # Call External API for Facial Authentication Username Update
             if image_data:
@@ -1762,13 +1887,22 @@ class UserCRUD:
             # Delete old image from Google Cloud if it exists
             if user.image_path:
                 gcs.delete_from_gcs(user.image_path)
+            
+            # Upload new image
+            org_acronym = get_organization_acronym(org.name)
+            folder = f"organizations/{org_acronym}/user_profiles"
+            file_content = await image_file.read()
+            new_image_url = storage.upload(
+            [{"filename": image_file.filename, "content": file_content, "content_type": image_file.content_type}],
+            folder=folder,
+            )
 
             # Upload new image
-            folder = f"organizations/{organization.name}/user_profiles"
-            new_image_url = gcs.upload_to_gcs(
-                [{"filename": image_file.filename, "content": await image_file.read()}],
-                folder
-            )
+            # folder = f"organizations/{organization.name}/user_profiles"
+            # new_image_url = gcs.upload_to_gcs(
+            #     [{"filename": image_file.filename, "content": await image_file.read()}],
+            #     folder
+            # )
 
             update_fields["image_path"] = new_image_url
             employee.profile_image_path = new_image_url  # Ensure Employee profile image is updated
@@ -1785,11 +1919,50 @@ class UserCRUD:
         # ✅ **Send Email Notification**
         email_service = EmailService()
 
-        email_body = email_service.get_update_notification_template(
+        email_body = get_update_notification_email_template(
             username=user.username,
             organization=organization,
         )
-        background_tasks.add_task(email_service.send_email, recipients=[user.email], subject="Account Update", html_body=email_body)
+        # background_tasks.add_task(email_service.send_email, recipients=[user.email], subject="Account Update", html_body=email_body)
+       
+        background_tasks.add_task(
+            email_service.send_html_email,
+            background_tasks,
+            [user.email],
+            "Account Update",
+            email_body
+        )
+        
+
+        org = db.query(Organization).filter(Organization.id == user.organization_id).first()
+        ci = employee.get("contact_info", {})
+        # if someone accidentally sent a JSON‐string in contact_info, try decode
+        if isinstance(ci, str):
+            try:
+                ci = json.loads(ci)
+            except:
+                print("\ncouldn't retrieve contact from str instance.\n")
+        if not isinstance(ci, dict):
+            print("couldn't retrieve contact from dict instance.\n")
+
+        phone = ci.get("phone".lower()) or ci.get("mobile".lower()) or ci.get("contact".lower()) or ci.get("phone number".lower()) or \
+                ci.get("phone_number".lower()) or ci.get("mobile number".lower()) or ci.get("mobile_number".lower()) or \
+                ci.get("contact number".lower()) or ci.get("contact_number".lower())
+        if not phone:
+            print("\nno phone or contact identified in contact_info.\n")
+
+        else:
+            sender  = get_organization_acronym(org.name) or getattr(org, "sms_sender_id", config.ARKESEL_SENDER_ID)
+            use_case = getattr(org, "sms_use_case", config.ARKESEL_USE_CASE)
+            background_tasks.add_task(
+                sms_svc.send,
+                phone,
+                "user_account_updated",
+                {"first_name": employee["first_name"], "org_name": org.name},
+                sender_id=sender,
+                use_case=use_case
+            )
+        
 
         return {"message": "User updated successfully."}
 

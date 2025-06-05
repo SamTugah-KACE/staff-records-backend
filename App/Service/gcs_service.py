@@ -8,9 +8,9 @@ import uuid
 from typing import Optional, List, Dict, Union
 import logging
 from fastapi import HTTPException
-from Utils.file_handler import get_gcs_client
+from Utils.file_handler import get_gcs_client, gcs_client
 from google.cloud.storage.blob import Blob
-from Utils.config import DevelopmentConfig
+from Utils.config import DevelopmentConfig, get_config
 import os
 import tempfile
 import urllib.parse
@@ -23,14 +23,14 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
-settings = DevelopmentConfig()
+settings = get_config()
 
 class GoogleCloudStorage:
     def __init__(self, bucket_name: str):
         # self.client = storage.Client()
-        self.client = get_gcs_client()
+        self.client = gcs_client
         self.bucket_name = bucket_name
-        self.bucket = self.client.get_bucket(bucket_name)
+        self.bucket = self.client.get_bucket(bucket_name) if self.client else None
         self.public_urls = {}
     
 
@@ -68,8 +68,10 @@ class GoogleCloudStorage:
                 if bucket_name != settings.BUCKET_NAME:
                     raise ValueError(f"Provided URL is not from the expected bucket: {settings.BUCKET_NAME}")
 
+                print("\n\nExtracted path: ", extracted_path)
                 return extracted_path  # Return the correct file path inside the GCS bucket
 
+            print("\n\nDecoded path: ", decoded_path)
             # If the path is already relative (not a full URL), return it as is
             return decoded_path
         except Exception as e:

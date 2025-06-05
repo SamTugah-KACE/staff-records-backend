@@ -9,6 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, Optional, List, Dict
 from uuid import UUID
 from Utils.util import sanitize_row_data
+from Utils.config import get_config, BaseConfig
+from Utils.storage_utils import get_storage_service
+from Utils.sms_utils import get_sms_service
 from Utils.field_mapping import map_employee_fields, merge_contact_info_fields, FIELD_SYNONYMS
 from Models.dynamic_models import EmployeeDynamicData, BulkUploadError  # dynamic table for unmatched data
 from database.db_session import get_db, get_async_db  # Dependency injection
@@ -31,6 +34,14 @@ from Schemas.schemas import (
 from Crud.user_base import UserCRUD as userbase
 from Crud.async_base import CRUDBase as AsyncCRUDBase
 # from Crud.base import CRUDBase
+from Service.storage_service import BaseStorage
+from Service.sms_service import BaseSMSService
+from Service.employee_aggregator import get_employee_full_record
+
+
+
+
+
 
 
 # ✅ Initialize UserCRUD instance
@@ -96,10 +107,12 @@ async def bulk_insert_employee_data_api(
     background_tasks: BackgroundTasks,
     organization_id: str = Form(...),
     file: UploadFile = File(...),
-    
-    db: Session = Depends(get_db)  # Replace with your get_db dependency
+    db: Session = Depends(get_db),  # Replace with your get_db dependency
+    conf: BaseConfig = Depends(get_config),
+    sms_svc: BaseSMSService = Depends(get_sms_service),    
 ):
-    result = userbase.bulk_insert_crud(organization_id, file, background_tasks, db)
+    result = userbase.bulk_insert_crud(organization_id, file, background_tasks, db, sms_svc, conf)
+
     return result
 
 # @router.post("/create", response_model=CreateUserResponseSchema, status_code=status.HTTP_201_CREATED)
@@ -286,73 +299,39 @@ from fastapi import Request
 async def create_new_employee(
     request: Request,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    config: BaseConfig  = Depends(get_config),
+    storage: BaseStorage   = Depends(get_storage_service),
+    sms_svc: BaseSMSService  = Depends(get_sms_service),
 ):
-    print("\n\nlocals(): \n", locals())
-    print("\n\nrequest: \n", request)
-    # Parse the form data from the request
-    # This assumes the request is a form submission (e.g., from a web form).
-    # If you're using JSON, you can use await request.json() instead.
-    # form = await request.json() # or await request.form() for form data
-    # print("\n\nrequest.form(): \n", await request.form())
-    # print("\n\nrequest.json()(): \n", await request.json()) 
+    # print("\n\nlocals(): \n", locals())
+    # print("\n\nrequest: \n", request)
+    
     form = await request.json()
     print("\nreceived form data: ", form)
     form_data = dict(form) 
     print("\n\nform_data: \n", form_data)
-    # # === FIELD SYNONYM MAP ===
-    # FIELD_SYNONYMS = {
-    #     "Prefix": "title",
-    #     "Given name": "first_name",
-    #     "Middle name": "middle_name",
-    #     "Surname": "last_name",
-    #     "Sex": "gender",
-    #     "Phone Number": "contact_info",
-    #     "Role Selection": "role_id",
-    #     "Employee Type": "employee_type",
-    #     "Email": "email",
-    #     "Submit Button": None,  # to be ignored
-    #     "organization_id": "organization_id",  # allow exact matches too
-    # }
 
     # # remove key 'Submit Button' from form_data if it exists
     if "Submit Button" in form_data:
         del form_data["Submit Button"]
     
     print("\n\nform_data after removing 'Submit Button': \n", form_data)
-    # # === Convert form keys to backend keys ===
-    # normalized_data = {}
-    # for key, value in form_data.items():
-    #     backend_key = FIELD_SYNONYMS.get(key)
-    #     if backend_key:
-    #         normalized_data[backend_key] = value
-    #     else:
-    #         normalized_data.setdefault("custom_data", {})[key] = value
-
-    print("\n\nform data: \n", form_data)
-    # print("\n\nnormalized_data: \n", normalized_data)
-    # print("organization_id: ", normalized_data["organization_id"])
-    # Parse and cast UUIDs early
-    # try:
-    #     org_id = UUID(normalized_data["organization_id"])
-    #     role_id = UUID(normalized_data["role_id"])
-    # except Exception:
-    #     raise HTTPException(status_code=400, detail="Invalid UUID format for organization or role ID.")
 
     # === Basic validation ===
-    for field in ["first_name", "last_name", "email"]:
+    for field in ["first_name", "last_name", "email", "role_id", "organization_id"]:
         if not form_data.get(field):
             raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
 
     # Parse contact info if needed
-    contact_info = form_data.get("contact_info", "")
+    contact_info = form_data.get("contact_info", {})
     if isinstance(contact_info, str) and contact_info.startswith("{"):
         try:
             contact_info = json.loads(contact_info)
         except Exception:
             pass  # fallback to string if not JSON
 
-    form_data["contact_info"] = contact_info
+    form_data["contact_info"] = contact_info if isinstance(contact_info, dict) else {}
 
     # Extract optional values
     created_by = form_data.get("created_by")
@@ -380,12 +359,15 @@ async def create_new_employee(
         organization_id=org_id,
         image_file=image_file if image_file else None,
         created_by=created_by,
+        storage= storage,
+        sms_svc= sms_svc,
+        config= config,
     )
     return result
 
 
 
-@router.patch("/update/{user_id}", response_model=UpdateUserResponseSchema)
+@router.patch("/update/userdata/{user_id}", response_model=UpdateUserResponseSchema)
 async def update_user_api(
     user_id: str,
     background_tasks: BackgroundTasks,
@@ -393,7 +375,10 @@ async def update_user_api(
     username: Optional[str] = Form(None),
     email: Optional[str] = Form(None),
     role_id: Optional[str] = Form(None),
-    image_file: Optional[UploadFile] = File(None)
+    image_file: Optional[UploadFile] = File(None),
+    config: BaseConfig  = Depends(get_config),
+    storage: BaseStorage   = Depends(get_storage_service),
+    sms_svc: BaseSMSService  = Depends(get_sms_service),
 ):
     """
     API for updating user details dynamically.
@@ -431,13 +416,13 @@ async def update_user_api(
         username,
         email,
         role_uuid,
-        image_file
+        image_file,
+        config,
+        storage,
+        sms_svc
     )
     return result
-    # return {
-    #     "message": "User updated successfully",
-        
-    # }
+     
 
 
 @router.get("/get-user/{identifier}/{organization_id}", response_model=GetUserResponseSchema)
@@ -458,166 +443,20 @@ def read_user_data(identifier: str, organization_id: str, db: Session = Depends(
     return data
 
 
+@router.get("/employee", response_model=dict)
+def get_employees_by_id(
+    employee_id: str,
+    
+    db: Session = Depends(get_db)
+):
+    payload = get_employee_full_record(db, employee_id)
+
+    return payload
+
 
 # ====================================================================
 # 2. Get Employees (get_multi) Endpoint
 # ====================================================================
-# @router.get("/employees", response_model=dict)
-# def get_employees_by_organization_id(
-#     organization_id: str,
-#     skip: int = Query(0, ge=0),
-#     limit: int = Query(100, gt=0),
-#     sort: Optional[str] = Query("asc", regex="^(asc|desc)$"),
-#     db: Session = Depends(get_db)
-# ) -> Dict[str, Any]:
-#     """
-#     Fetch all staff for the given organization, including full related data.
-#     The endpoint returns:
-#       - Employee basic info (with dynamic custom_data, academic/professional details, etc.)
-#       - Related department, branch, employee_type, and rank details.
-#       - Aggregated summary data (total staff, counts by branch and department).
-#       - Sorting options by username (asc or desc).
-#     """
-#     # Confirm the organization exists.
-#     org = db.query(Organization).filter(Organization.id == organization_id).first()
-#     if not org:
-#         raise HTTPException(status_code=404, detail="Organization not found.")
-
-#     # Pre-fetch branches if the organization is branch managed.
-#     branches_dict = {}
-#     if "branch" in org.nature.lower() or org.nature.lower() == "multi-branch":
-#         branches = db.query(Branch).filter(Branch.organization_id == organization_id).all()
-#         branches_dict = {str(branch.id): branch for branch in branches}
-
-#     # Get all active users (the User model flag 'is_active' is enforced here).
-#     # We assume the Employee record is linked to a User via email.
-#     users = db.query(User).filter(User.organization_id == organization_id).all()
-#     users_dict = {user.email: user for user in users}
-
-#     # Query employees using pagination.
-#     employees = (
-#         db.query(Employee)
-#         .filter(Employee.organization_id == organization_id)
-#         .offset(skip)
-#         .limit(limit)
-#         .all()
-#     )
-    
-#     result = []
-#     total_staff = 0
-#     branch_summary: Dict[str, int] = {}
-#     department_summary: Dict[str, int] = {}
-
-#     for idx, emp in enumerate(employees, start=1):
-#         total_staff += 1
-
-#         # Build department info.
-#         dept = None
-#         if emp.department:
-#             dept = {
-#                 "id": str(emp.department.id),
-#                 "name": emp.department.name,
-#                 "department_head_id": str(emp.department.department_head_id) if emp.department.department_head_id else None,
-#                 "branch_id": str(emp.department.branch_id) if emp.department.branch_id else None
-#             }
-#             # If branch managed, attach branch details.
-#             if dept["branch_id"] and dept["branch_id"] in branches_dict:
-#                 branch_obj = branches_dict[dept["branch_id"]]
-#                 dept["branch_name"] = branch_obj.name
-#                 dept["branch_location"] = branch_obj.location
-#                 branch_summary[branch_obj.name] = branch_summary.get(branch_obj.name, 0) + 1
-#             department_summary[dept["name"]] = department_summary.get(dept["name"], 0) + 1
-
-#         # Employment details: employee type, rank, branch.
-#         employment_details = {
-#             "employee_type": {
-#                 "id": str(emp.employee_type.id) if emp.employee_type else None,
-#                 "type_code": emp.employee_type.type_code if emp.employee_type else None,
-#                 "description": emp.employee_type.description if emp.employee_type else None,
-#                 "default_criteria": emp.employee_type.default_criteria if emp.employee_type else None,
-#             },
-#             "rank": {
-#                 "id": str(emp.rank.id) if emp.rank else None,
-#                 "name": emp.rank.name if emp.rank else None,
-#             },
-#             # "branch": None
-#         }
-#         # if hasattr(emp, "branch") and emp.branch:
-#         #     employment_details["branch"] = {
-#         #         "id": str(emp.branch.id),
-#         #         "name": emp.branch.name,
-#         #         "location": emp.branch.location
-#         #     }
-#         # elif dept and dept.get("branch_id") and dept["branch_id"] in branches_dict:
-#         #     branch_obj = branches_dict[dept["branch_id"]]
-#         #     employment_details["branch"] = {
-#         #         "id": str(branch_obj.id),
-#         #         "name": branch_obj.name,
-#         #         "location": branch_obj.location
-#         #     }
-
-#         # Retrieve additional collections.
-#         def serialize_collection(collection, fields: List[str]) -> List[Dict[str, Any]]:
-#             return [
-#                 {field: getattr(item, field) for field in fields if hasattr(item, field)}
-#                 for item in collection
-#             ]
-#         academic_qualifications = serialize_collection(emp.academic_qualifications, ["id", "degree", "institution", "year_obtained", "details", "certificate_path"]) if hasattr(emp, "academic_qualifications") else []
-#         professional_qualifications = serialize_collection(emp.professional_qualifications, ["id", "qualification_name", "institution", "year_obtained", "details", "license_path"]) if hasattr(emp, "professional_qualifications") else []
-#         employment_history = serialize_collection(emp.employment_history, ["id", "job_title", "company", "start_date", "end_date", "details", "documents_path"]) if hasattr(emp, "employment_history") else []
-#         emergency_contacts = serialize_collection(emp.emergency_contacts, ["id", "name", "relation", "phone", "address", "details"]) if hasattr(emp, "emergency_contacts") else []
-#         next_of_kin = serialize_collection(emp.next_of_kins, ["id", "name", "relation", "phone", "address", "details"]) if hasattr(emp, "next_of_kins") else []
-#         payment_details = serialize_collection(emp.payment_details, ["id", "payment_mode", "bank_name", "account_number", "mobile_money_provider", "wallet_number", "additional_info", "is_verified"]) if hasattr(emp, "payment_details") else []
-
-#         # Determine employee account status from associated User record.
-#         user_obj = users_dict.get(emp.email)
-#         status = "Active" if user_obj and user_obj.is_active else "Inactive"
-
-#         emp_data = {
-#             f"employee-row-# {idx}": {
-#                 "id": str(emp.id),
-#                 "first_name": emp.first_name,
-#                 "middle_name": emp.middle_name,
-#                 "last_name": emp.last_name,
-#                 "email": emp.email,
-#                 "contact_info": emp.contact_info,
-#                 "custom_data": emp.custom_data,
-#                 "profile_image_path": emp.profile_image_path,
-#                 "hire_date": str(emp.hire_date) if emp.hire_date else None,
-#                 "termination_date": str(emp.termination_date) if emp.termination_date else None,
-#                 "status": status,
-#                 "academic_qualifications": academic_qualifications,
-#                 "professional_qualifications": professional_qualifications,
-#                 "employment_history": employment_history,
-#                 "emergency_contacts": emergency_contacts,
-#                 "next_of_kin": next_of_kin,
-#                 "payment_details": payment_details,
-#             },
-#             "department": dept,
-#             "employment_details": employment_details
-#         }
-#         result.append(emp_data)
-
-#     # Prepare organization info and summary.
-#     organization_info = {
-#         "id": str(org.id),
-#         "name": org.name,
-#         "org_email": org.org_email,
-#         "country": org.country,
-#         "access_url": org.access_url,
-#         "nature": org.nature,
-#         "type": org.type
-#     }
-#     summary = {
-#         "total_staff": total_staff,
-#         "branch_summary": branch_summary,
-#         "department_summary": department_summary,
-#     }
-#     # Sort the result by first name (alphabetical order) if specified.
-#     result_sorted = sorted(result, key=lambda x: x.get(list(x.keys())[0]).get("first_name"), reverse=(sort=="desc"))
-#     return {"organization": organization_info, "summary": summary, "employees": result_sorted, "skip": skip, "limit": limit}
-
-#########
 @router.get("/employees", response_model=dict)
 def get_employees_by_organization_id(
     organization_id: str,
@@ -628,14 +467,13 @@ def get_employees_by_organization_id(
 ) -> Dict[str, Any]:
     """
     Fetch all staff for the given organization, including full related data.
-    This endpoint returns:
+    The endpoint returns:
       - Employee basic info (with dynamic custom_data, academic/professional details, etc.)
       - Related department, branch, employee_type, and rank details.
       - Aggregated summary data (total staff, counts by branch and department).
-      - Sorting options by first name (asc or desc).
-      - Integrated user account role details (role id and role name).
+      - Sorting options by username (asc or desc).
     """
-    # Verify the organization exists.
+    # Confirm the organization exists.
     org = db.query(Organization).filter(Organization.id == organization_id).first()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found.")
@@ -646,14 +484,13 @@ def get_employees_by_organization_id(
         branches = db.query(Branch).filter(Branch.organization_id == organization_id).all()
         branches_dict = {str(branch.id): branch for branch in branches}
 
-    # Retrieve all active users for the organization and index by email.
-    users = db.query(User).filter(
-        User.organization_id == organization_id,
-        User.is_active == True
-    ).all()
+    # Get all active users (the User model flag 'is_active' is enforced here).
+    # We assume the Employee record is linked to a User via email.
+    users = db.query(User).filter(User.organization_id == organization_id).all()
     users_dict = {user.email: user for user in users}
 
-    # Paginate employee records.
+    
+    # Query employees using pagination.
     employees = (
         db.query(Employee)
         .filter(Employee.organization_id == organization_id)
@@ -661,24 +498,16 @@ def get_employees_by_organization_id(
         .limit(limit)
         .all()
     )
-
+    
     result = []
     total_staff = 0
-    branch_summary = {}
-    department_summary = {}
+    branch_summary: Dict[str, int] = {}
+    department_summary: Dict[str, int] = {}
 
-    def serialize_collection(collection, fields: List[str]) -> List[Dict[str, Any]]:
-        """Helper function to serialize a collection of related objects."""
-        return [
-            {field: getattr(item, field) for field in fields if hasattr(item, field)}
-            for item in collection
-        ]
-
-    # Process each employee record.
     for idx, emp in enumerate(employees, start=1):
         total_staff += 1
 
-        # Serialize department information.
+        # Build department info.
         dept = None
         if emp.department:
             dept = {
@@ -687,7 +516,7 @@ def get_employees_by_organization_id(
                 "department_head_id": str(emp.department.department_head_id) if emp.department.department_head_id else None,
                 "branch_id": str(emp.department.branch_id) if emp.department.branch_id else None
             }
-            # Add branch details if applicable.
+            # If branch managed, attach branch details.
             if dept["branch_id"] and dept["branch_id"] in branches_dict:
                 branch_obj = branches_dict[dept["branch_id"]]
                 dept["branch_name"] = branch_obj.name
@@ -695,7 +524,7 @@ def get_employees_by_organization_id(
                 branch_summary[branch_obj.name] = branch_summary.get(branch_obj.name, 0) + 1
             department_summary[dept["name"]] = department_summary.get(dept["name"], 0) + 1
 
-        # Serialize employment details.
+        # Employment details: employee type, rank, branch.
         employment_details = {
             "employee_type": {
                 "id": str(emp.employee_type.id) if emp.employee_type else None,
@@ -706,48 +535,39 @@ def get_employees_by_organization_id(
             "rank": {
                 "id": str(emp.rank.id) if emp.rank else None,
                 "name": emp.rank.name if emp.rank else None,
-            }
+            },
+           
+            # "branch": None
         }
+       
+        # Retrieve additional collections.
+        def serialize_collection(collection, fields: List[str]) -> List[Dict[str, Any]]:
+            return [
+                {field: getattr(item, field) for field in fields if hasattr(item, field)}
+                for item in collection
+            ]
+        academic_qualifications = serialize_collection(emp.academic_qualifications, ["id", "degree", "institution", "year_obtained", "details", "certificate_path"]) if hasattr(emp, "academic_qualifications") else []
+        professional_qualifications = serialize_collection(emp.professional_qualifications, ["id", "qualification_name", "institution", "year_obtained", "details", "license_path"]) if hasattr(emp, "professional_qualifications") else []
+        employment_history = serialize_collection(emp.employment_history, ["id", "job_title", "company", "start_date", "end_date", "details", "documents_path"]) if hasattr(emp, "employment_history") else []
+        emergency_contacts = serialize_collection(emp.emergency_contacts, ["id", "name", "relation", "emergency_phone", "emergency_address", "details"]) if hasattr(emp, "emergency_contacts") else []
+        next_of_kin = serialize_collection(emp.next_of_kins, ["id", "name", "relation", "nok_phone", "nok_address", "details"]) if hasattr(emp, "next_of_kins") else []
+        payment_details = serialize_collection(emp.payment_details, ["id", "payment_mode", "bank_name", "account_number", "mobile_money_provider", "wallet_number", "additional_info", "is_verified"]) if hasattr(emp, "payment_details") else []
 
-        # Serialize collections.
-        academic_qualifications = serialize_collection(
-            getattr(emp, "academic_qualifications", []),
-            ["id", "degree", "institution", "year_obtained", "details", "certificate_path"]
-        )
-        professional_qualifications = serialize_collection(
-            getattr(emp, "professional_qualifications", []),
-            ["id", "qualification_name", "institution", "year_obtained", "details", "license_path"]
-        )
-        employment_history = serialize_collection(
-            getattr(emp, "employment_history", []),
-            ["id", "job_title", "company", "start_date", "end_date", "details", "documents_path"]
-        )
-        emergency_contacts = serialize_collection(
-            getattr(emp, "emergency_contacts", []),
-            ["id", "name", "relation", "phone", "address", "details"]
-        )
-        next_of_kin = serialize_collection(
-            getattr(emp, "next_of_kins", []),
-            ["id", "name", "relation", "phone", "address", "details"]
-        )
-        payment_details = serialize_collection(
-            getattr(emp, "payment_details", []),
-            ["id", "payment_mode", "bank_name", "account_number", "mobile_money_provider", "wallet_number", "additional_info", "is_verified"]
-        )
-
-        # Retrieve user record to determine account status and role.
+        # Determine employee account status from associated User record.
         user_obj = users_dict.get(emp.email)
-        account_status = "Active" if user_obj and user_obj.is_active else "Inactive"
-        role_details = None
-        if user_obj and user_obj.role:
-            role_details = {
-                "id": str(user_obj.role.id),
-                "name": user_obj.role.name
-            }
+        status = "Active" if user_obj and user_obj.is_active else "Inactive"
 
-        # Build employee data structure.
+        role = db.query(Role).filter(Role.id == user_obj.role_id).first()
+
+        print(f"""
+            "user ID: {user_obj.id}\n
+            user role id: {role.id}\n
+            role name: {role.name}\n
+            username: {user_obj.username}
+        """)
+
         emp_data = {
-            f"employee_row_{idx}": {
+            f"employee-row-# {idx}": {
                 "id": str(emp.id),
                 "first_name": emp.first_name,
                 "middle_name": emp.middle_name,
@@ -758,21 +578,26 @@ def get_employees_by_organization_id(
                 "profile_image_path": emp.profile_image_path,
                 "hire_date": str(emp.hire_date) if emp.hire_date else None,
                 "termination_date": str(emp.termination_date) if emp.termination_date else None,
-                "status": account_status,
-                "role": role_details,
+                "status": status,
                 "academic_qualifications": academic_qualifications,
                 "professional_qualifications": professional_qualifications,
                 "employment_history": employment_history,
                 "emergency_contacts": emergency_contacts,
                 "next_of_kin": next_of_kin,
                 "payment_details": payment_details,
+                "staffId":emp.staff_id if emp.staff_id else 'N/A',
+                "role": {
+                    "id":role.id,
+                         "name": role.name,
+                         },
             },
             "department": dept,
             "employment_details": employment_details
         }
-        result.append(emp_data)
+        if emp_data["employee-row-# " + str(idx)]["status"] == "Active": 
+            result.append(emp_data)
 
-    # Organize organization and summary data.
+    # Prepare organization info and summary.
     organization_info = {
         "id": str(org.id),
         "name": org.name,
@@ -787,21 +612,195 @@ def get_employees_by_organization_id(
         "branch_summary": branch_summary,
         "department_summary": department_summary,
     }
+    # Sort the result by first name (alphabetical order) if specified.
+    result_sorted = sorted(result, key=lambda x: x.get(list(x.keys())[0]).get("first_name"), reverse=(sort=="desc"))
+    return {"organization": organization_info, "summary": summary, "employees": result_sorted, "skip": skip, "limit": limit}
 
-    # Sort the results by first name.
-    result_sorted = sorted(
-        result,
-        key=lambda x: list(x.values())[0].get("first_name"),
-        reverse=(sort == "desc")
-    )
+#########
+# @router.get("/employees", response_model=dict)
+# def get_employees_by_organization_id(
+#     organization_id: str,
+#     skip: int = Query(0, ge=0),
+#     limit: int = Query(100, gt=0),
+#     sort: Optional[str] = Query("asc", regex="^(asc|desc)$"),
+#     db: Session = Depends(get_db)
+# ) -> Dict[str, Any]:
+#     """
+#     Fetch all staff for the given organization, including full related data.
+#     This endpoint returns:
+#       - Employee basic info (with dynamic custom_data, academic/professional details, etc.)
+#       - Related department, branch, employee_type, and rank details.
+#       - Aggregated summary data (total staff, counts by branch and department).
+#       - Sorting options by first name (asc or desc).
+#       - Integrated user account role details (role id and role name).
+#     """
+#     # Verify the organization exists.
+#     org = db.query(Organization).filter(Organization.id == organization_id).first()
+#     if not org:
+#         raise HTTPException(status_code=404, detail="Organization not found.")
 
-    return {
-        "organization": organization_info,
-        "summary": summary,
-        "employees": result_sorted,
-        "skip": skip,
-        "limit": limit
-    }
+#     # Pre-fetch branches if the organization is branch managed.
+#     branches_dict = {}
+#     if "branch" in org.nature.lower() or org.nature.lower() == "multi-branch":
+#         branches = db.query(Branch).filter(Branch.organization_id == organization_id).all()
+#         branches_dict = {str(branch.id): branch for branch in branches}
+
+#     # Retrieve all active users for the organization and index by email.
+#     users = db.query(User).filter(
+#         User.organization_id == organization_id,
+#         User.is_active == True
+#     ).all()
+#     users_dict = {user.email: user for user in users}
+
+#     # Paginate employee records.
+#     employees = (
+#         db.query(Employee)
+#         .filter(Employee.organization_id == organization_id)
+#         .offset(skip)
+#         .limit(limit)
+#         .all()
+#     )
+
+#     result = []
+#     total_staff = 0
+#     branch_summary = {}
+#     department_summary = {}
+
+#     def serialize_collection(collection, fields: List[str]) -> List[Dict[str, Any]]:
+#         """Helper function to serialize a collection of related objects."""
+#         return [
+#             {field: getattr(item, field) for field in fields if hasattr(item, field)}
+#             for item in collection
+#         ]
+
+#     # Process each employee record.
+#     for idx, emp in enumerate(employees, start=1):
+#         total_staff += 1
+
+#         # Serialize department information.
+#         dept = None
+#         if emp.department:
+#             dept = {
+#                 "id": str(emp.department.id),
+#                 "name": emp.department.name,
+#                 "department_head_id": str(emp.department.department_head_id) if emp.department.department_head_id else None,
+#                 "branch_id": str(emp.department.branch_id) if emp.department.branch_id else None
+#             }
+#             # Add branch details if applicable.
+#             if dept["branch_id"] and dept["branch_id"] in branches_dict:
+#                 branch_obj = branches_dict[dept["branch_id"]]
+#                 dept["branch_name"] = branch_obj.name
+#                 dept["branch_location"] = branch_obj.location
+#                 branch_summary[branch_obj.name] = branch_summary.get(branch_obj.name, 0) + 1
+#             department_summary[dept["name"]] = department_summary.get(dept["name"], 0) + 1
+
+#         # Serialize employment details.
+#         employment_details = {
+#             "employee_type": {
+#                 "id": str(emp.employee_type.id) if emp.employee_type else None,
+#                 "type_code": emp.employee_type.type_code if emp.employee_type else None,
+#                 "description": emp.employee_type.description if emp.employee_type else None,
+#                 "default_criteria": emp.employee_type.default_criteria if emp.employee_type else None,
+#             },
+#             "rank": {
+#                 "id": str(emp.rank.id) if emp.rank else None,
+#                 "name": emp.rank.name if emp.rank else None,
+#             }
+#         }
+
+#         # Serialize collections.
+#         academic_qualifications = serialize_collection(
+#             getattr(emp, "academic_qualifications", []),
+#             ["id", "degree", "institution", "year_obtained", "details", "certificate_path"]
+#         )
+#         professional_qualifications = serialize_collection(
+#             getattr(emp, "professional_qualifications", []),
+#             ["id", "qualification_name", "institution", "year_obtained", "details", "license_path"]
+#         )
+#         employment_history = serialize_collection(
+#             getattr(emp, "employment_history", []),
+#             ["id", "job_title", "company", "start_date", "end_date", "details", "documents_path"]
+#         )
+#         emergency_contacts = serialize_collection(
+#             getattr(emp, "emergency_contacts", []),
+#             ["id", "name", "relation", "phone", "address", "details"]
+#         )
+#         next_of_kin = serialize_collection(
+#             getattr(emp, "next_of_kins", []),
+#             ["id", "name", "relation", "phone", "address", "details"]
+#         )
+#         payment_details = serialize_collection(
+#             getattr(emp, "payment_details", []),
+#             ["id", "payment_mode", "bank_name", "account_number", "mobile_money_provider", "wallet_number", "additional_info", "is_verified"]
+#         )
+
+#         # Retrieve user record to determine account status and role.
+#         user_obj = users_dict.get(emp.email)
+#         account_status = "Active" if user_obj and user_obj.is_active else "Inactive"
+#         role_details = None
+#         if user_obj and user_obj.role:
+#             role_details = {
+#                 "id": str(user_obj.role.id),
+#                 "name": user_obj.role.name
+#             }
+
+#         # Build employee data structure.
+#         emp_data = {
+#             f"employee_row_{idx}": {
+#                 "id": str(emp.id),
+#                 "first_name": emp.first_name,
+#                 "middle_name": emp.middle_name,
+#                 "last_name": emp.last_name,
+#                 "email": emp.email,
+#                 "contact_info": emp.contact_info,
+#                 "custom_data": emp.custom_data,
+#                 "profile_image_path": emp.profile_image_path,
+#                 "hire_date": str(emp.hire_date) if emp.hire_date else None,
+#                 "termination_date": str(emp.termination_date) if emp.termination_date else None,
+#                 "status": account_status,
+#                 "role": role_details,
+#                 "academic_qualifications": academic_qualifications,
+#                 "professional_qualifications": professional_qualifications,
+#                 "employment_history": employment_history,
+#                 "emergency_contacts": emergency_contacts,
+#                 "next_of_kin": next_of_kin,
+#                 "payment_details": payment_details,
+#             },
+#             "department": dept,
+#             "employment_details": employment_details
+#         }
+#         result.append(emp_data)
+
+#     # Organize organization and summary data.
+#     organization_info = {
+#         "id": str(org.id),
+#         "name": org.name,
+#         "org_email": org.org_email,
+#         "country": org.country,
+#         "access_url": org.access_url,
+#         "nature": org.nature,
+#         "type": org.type
+#     }
+#     summary = {
+#         "total_staff": total_staff,
+#         "branch_summary": branch_summary,
+#         "department_summary": department_summary,
+#     }
+
+#     # Sort the results by first name.
+#     result_sorted = sorted(
+#         result,
+#         key=lambda x: list(x.values())[0].get("first_name"),
+#         reverse=(sort == "desc")
+#     )
+
+#     return {
+#         "organization": organization_info,
+#         "summary": summary,
+#         "employees": result_sorted,
+#         "skip": skip,
+#         "limit": limit
+#     }
 
 
 

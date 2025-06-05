@@ -1,7 +1,7 @@
 import aiohttp
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from fastapi import HTTPException, BackgroundTasks, UploadFile
+from fastapi import HTTPException, BackgroundTasks, UploadFile, Depends
 from typing import Type, TypeVar, Optional, List, Any
 from pydantic import BaseModel
 from uuid import UUID 
@@ -26,7 +26,7 @@ import json
 from Utils.security import pwd_context, Security
 from Utils.util import get_organization_acronym
 from Utils.config import DevelopmentConfig
-
+from Utils.sms_utils import get_sms_service
 
 
 
@@ -48,17 +48,11 @@ ModelType = TypeVar("ModelType")  # SQLAlchemy model
 SchemaType = TypeVar("SchemaType", bound=BaseModel)  # Pydantic schema
 CreateSchemaType = TypeVar("CreateSchemaType", bound=BaseModel)  # Pydantic create schema
 
-# Constants for Password Hashing
-# pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-# pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 
 # Constants for Random Username and Password Generation
 CHARACTER_SET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345679"
 USERNAME_LENGTH = 8
 PASSWORD_LENGTH = 12
-
-
-
 
 
 # Helper function to generate random string
@@ -241,6 +235,7 @@ class CRUDBase:
         db: Session,
         obj_in: CreateSchemaType,
         created_by: Optional[UUID] = None,
+        # sms_svc: object = Depends(get_sms_service)
     ) -> ModelType:
         
 
@@ -391,7 +386,9 @@ class CRUDBase:
                     **{k: v for k, v in employee_data.items() if k != "organization_id"},
                         
                     )
-                    
+                    # setattr(employee_obj, "_role_id", user_data["role_id"])
+                    # setattr(employee_obj, "_plain_password", password)
+                    # setattr(employee_obj, "_user_image",user_data.get("image_path", "https://example.com/default-profile.png"))
                     db.add(employee_obj)
                 
                     
@@ -496,6 +493,10 @@ class CRUDBase:
 
             db.commit()
 
+
+
+
+
             # Reload the organization with nested relationships
             db_obj = (
                 db.query(self.model)
@@ -509,6 +510,21 @@ class CRUDBase:
                 .filter_by(id=db_obj.id)
                 .first()
             )
+
+             # schedule SMS per employee
+            # for emp in employee_data:
+            #     phone = emp.get("contact_info", {}).get("phone")
+            #     contact = emp.get("contact_info", {}).get("contact")
+
+            #     if phone or contact:
+            #         background_tasks.add_task(
+            #             sms_svc.send,
+            #             phone or contact,
+            #             "org_signup",
+            #             {"first_name": emp["first_name"], "org_name": name}
+            #         )
+
+
             return OrganizationSchema.model_validate(db_obj)
 
         except IntegrityError as e:

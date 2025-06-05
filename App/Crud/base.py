@@ -15,10 +15,10 @@ from sqlalchemy.sql import and_, or_
 from Models.Tenants.organization import Organization
 from Models.Tenants.role import Role
 from Models.models import Employee, User
-from Utils.config import DevelopmentConfig
+from Utils.config import DevelopmentConfig, get_config
 from Service.gcs_service import GoogleCloudStorage
 
-settings = DevelopmentConfig()
+settings = get_config()
 
 gcs = GoogleCloudStorage(bucket_name=settings.BUCKET_NAME)
 # Configure logger

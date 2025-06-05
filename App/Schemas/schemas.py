@@ -629,6 +629,36 @@ class NextOfKinSchema(BaseSchema):
     address: Optional[str]
     details: Optional[Dict]
 
+
+# Employee Data Input Schemas
+class EmployeeDataInputBase(BaseModel):
+    employee_id: UUID
+    organization_id: UUID
+    data: Any
+    request_type: str = Field(..., pattern= "^(save|update)$")
+    data_type: str
+
+class EmployeeDataInputCreate(EmployeeDataInputBase):
+    pass
+
+class EmployeeDataInputUpdate(BaseModel):
+    status: Optional[str] = Field(None, pattern= "^(Pending|Approved|Rejected)$")
+    comments: Optional[str]
+
+class EmployeeDataInputInDBBase(EmployeeDataInputBase):
+    id: UUID
+    request_date: datetime
+    status: str
+    comments: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+class EmployeeDataInput(EmployeeDataInputInDBBase):
+    pass
+
+
+
 # File Storage Schema
 class FileStorageSchema(BaseSchema):
     file_name: str
@@ -944,3 +974,48 @@ class DashboardSchema(DashboardBaseSchema):
 
     class Config:
         from_attributes = True
+
+
+# ---------------------------------
+# Summary endpoint schemas
+# ---------------------------------
+class SummaryCounts(BaseModel):
+    branches: Optional[int] = 0
+    departments: Optional[int] = 0
+    ranks: Optional[int] = 0
+    roles: int
+    users: int
+    employees: int
+    promotion_policies: Optional[int] = 0
+    tenancies: Optional[int] = 0
+    bills: Optional[int] = 0
+    payments: Optional[int] = 0
+
+    class Config:
+        from_attributes = True
+
+class OrganizationSummarySchema(BaseModel):
+    organization: OrganizationSchema
+    counts: SummaryCounts
+
+    class Config:
+        from_attributes = True
+
+class OrganizationCountSummarySchema(BaseModel):
+    counts: SummaryCounts
+
+    class Config:
+        from_attributes = True
+    
+
+class EmployeeUserUpdateResponse(BaseModel):
+    employee_id: str
+    staffId:      Optional[str] = None
+    name:         Optional[str] = None
+    department:   Optional[dict]  # {"id": <str>, "name": <str>, "branch_id": <str>}
+    branch:       Optional[dict]  # {"id": <str>, "name": <str>, "location": <str>}
+    role:         Optional[dict]  # {"id": <str>, "name": <str>}
+
+    class Config:
+        # Ensure UUIDs serialize as strings
+        json_encoders = { UUID: lambda v: str(v) }

@@ -2,7 +2,7 @@ import asyncio
 import datetime
 import json
 from fastapi import APIRouter, WebSocketDisconnect, WebSocket
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 
 router = APIRouter()
@@ -74,7 +74,44 @@ configuration, and logging as needed in your environment.
 class ConnectionManager:
     def __init__(self):
         # Active connections keyed by organization_id.
+        # Keyed by organization_id → list of all WebSockets in that org
         self.active_connections: Dict[str, List[WebSocket]] = {}
+        # Keyed by (organization_id, user_id) → list of WebSockets for that user
+        self.user_connections: Dict[Tuple[str, str], List[WebSocket]] = {}
+        # Lock to prevent race conditions during connect/disconnect
+        self._lock = asyncio.Lock()
+
+    
+    async def register(self, organization_id: str, user_id: str, websocket: WebSocket):
+        """
+        Call this _after_ you have validated the token and decided to accept() the WebSocket.
+        This will simply record in-memory that this particular websocket belongs to:
+          - organization_id (for broadcasting to entire org)
+          - (organization_id, user_id) (for sending personal messages).
+        """
+        async with self._lock:
+            self.active_connections.setdefault(organization_id, []).append(websocket)
+            self.user_connections.setdefault((organization_id, user_id), []).append(websocket)
+
+    async def unregister(self, organization_id: str, user_id: str, websocket: WebSocket):
+        """
+        Remove this WebSocket from both the org’s list and the user’s list.
+        """
+        async with self._lock:
+            # Remove from active_connections
+            conns = self.active_connections.get(organization_id, [])
+            if websocket in conns:
+                conns.remove(websocket)
+                if not conns:
+                    del self.active_connections[organization_id]
+
+            # Remove from user_connections
+            key = (organization_id, user_id)
+            user_conns = self.user_connections.get(key, [])
+            if websocket in user_conns:
+                user_conns.remove(websocket)
+                if not user_conns:
+                    del self.user_connections[key]
 
     async def connect(self, organization_id: str, websocket: WebSocket):
         await websocket.accept()
@@ -84,13 +121,41 @@ class ConnectionManager:
         if organization_id in self.active_connections and websocket in self.active_connections[organization_id]:
             self.active_connections[organization_id].remove(websocket)
 
-    async def send_personal_message(self, message: str, websocket: WebSocket):
-        await websocket.send_text(message)
+    # async def send_personal_message(self, message: str, websocket: WebSocket):
+    #     await websocket.send_text(message)
+
+    async def send_personal_message(self, organization_id: str, user_id: str, message: str):
+        """
+        Send `message` to every WebSocket that belongs to (organization_id, user_id).
+        If that user is offline (no entry in user_connections), this is a no-op.
+        """
+        key = (organization_id, user_id)
+        if key not in self.user_connections:
+            return
+        for ws in list(self.user_connections[key]):
+            try:
+                await ws.send_text(message)
+            except Exception:
+                # If sending fails, we ignore; the next heartbeat/disconnect will clean it up.
+                pass
+
+    # async def broadcast(self, organization_id: str, message: str):
+    #     if organization_id in self.active_connections:
+    #         for connection in self.active_connections[organization_id]:
+    #             await connection.send_text(message)
 
     async def broadcast(self, organization_id: str, message: str):
-        if organization_id in self.active_connections:
-            for connection in self.active_connections[organization_id]:
-                await connection.send_text(message)
+        """
+        Send `message` to every WebSocket currently connected under organization_id.
+        """
+        if organization_id not in self.active_connections:
+            return
+        for ws in list(self.active_connections[organization_id]):
+            try:
+                await ws.send_text(message)
+            except Exception:
+                # If sending fails, ignore; cleanup happens in disconnect.
+                pass
 
 manager = ConnectionManager()
 

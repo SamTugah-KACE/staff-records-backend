@@ -1,9 +1,15 @@
 from datetime import date, datetime
+from passlib.context import CryptContext
+import secrets
 from dateutil.relativedelta import relativedelta
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, BackgroundTasks, Query, Request, status, UploadFile, File, Form
+from pydantic import EmailStr
 from sqlalchemy.orm import Session
 from uuid import UUID 
-from typing import List, Optional
+from typing import Dict, List, Optional
+from Service.bulk_insert_service import build_account_email_html
+from email_service import EmailService
+from Service.storage_service import BaseStorage
 from database.db_session import get_db  # Your database session dependency
 from Crud.crud import CRUDBase  # Generic CRUD class
 from Crud.branch import *
@@ -29,28 +35,32 @@ from Schemas.schemas import (OrganizationCreateSchema, OrganizationSchema,
                          EmergencyContactCreateSchema, EmergencyContactSchema,
                          NextOfKinCreateSchema, NextOfKinSchema, FileStorageSchema,
                          AuditLogSchema, SystemSettingSchema, DashboardSchema)
-
+from Service.gcs_service import GoogleCloudStorage
 from Utils.util import   get_create_user_url, get_organization_acronym  # Import your utility classes
 import json
 from Service.gcs_service import GoogleCloudStorage
-from Utils.config import DevelopmentConfig, get_config
+from Utils.config import ProductionConfig, get_config
 from Service.service import upload_to_google_cloud
 import logging
 from Service.file_service import upload_file
 from Utils.file_handler import get_gcs_client
 from Utils.serialize_4_json import serialize_for_json
+from Utils.storage_utils import get_storage_service
+from Utils.sms_utils import get_sms_service
+
 
 
 
 # Create the FastAPI app
 app = APIRouter()
 
-config = DevelopmentConfig()  # Load the development configuration
+config = ProductionConfig()  # Load the development configuration
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+gcs= GoogleCloudStorage(bucket_name=config.BUCKET_NAME)  # Replace with your actual bucket name
 
 current_date = date.today()
 next_year = current_date + relativedelta(years=5)
@@ -69,7 +79,7 @@ next_of_kin_crud = CRUDBase(NextOfKin)
 system_setting_crud = CRUDBase(SystemSetting)
 
 
-
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 @app.get("/slug/{slug}")
@@ -103,59 +113,95 @@ async def create_organization_form(
     logos: Optional[List[UploadFile]] = File(None),  # Organization logos
     user_images: Optional[List[UploadFile]] = File(None),  # User profile images
     tenancies: Optional[str] = Form(json.dumps([
-            # {
-            #     "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-            #     "start_date": "2025-01-01",
-            #     "billing_cycle": "Monthly",
-            #     "terms_and_conditions_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-            #     "terms_and_conditions": [
-            #         {
-            #             "title": "Default Terms",
-            #             "content": {"agreement": "Sample agreement text"},
-            #             "version": "1.0",
-            #             "is_active": True
-            #         }
-            #     ]
-            # }
+            {
+                "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "start_date": "2025-01-01",
+                "billing_cycle": "Monthly",
+                "terms_and_conditions_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                "terms_and_conditions": [
+                    {
+                        "title": "Default Terms",
+                        "content": {"agreement": "Sample agreement text"},
+                        "version": "1.0",
+                        "is_active": True
+                    }
+                ]
+            }
         ])),  # JSON string for tenancies
     roles: Optional[str] = File(json.dumps([
-    #     {
-    #   "name": "Administrator",
-    #   "permissions": {"read": "all", "write": "all", "delete": "all"},
-    #   "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-    # },
-    # {
-    #     "name": "HR", 
-    #     "permissions": {"admin": False, "Deputy":True, "read": "all", "write": "all", "delete": "all"},
-    #     "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6" 
-    #     },
-    # {
-    #     "name": "User", 
-    #     "permissions": {"admin": False, "Deputy": False, "read": "all", "write": "null", "delete": "soft delete"},
-    #     "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6" 
-    #     },
+        {
+        "name": "Admin",
+        "permissions": [
+            "employee:create",
+            "employee:read",
+            "employee:update",
+            "employee:delete",
+            "role:manage",
+            "user:assignRole",
+            "audit:read",
+            "organization:update",
+            "hr:dashboard",
+            "admin:dashboard",
+            "hr:dashboard:settings",
+        ],
+      "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+    },
+    {
+        "name": "HR", 
+        "permissions": [
+            "employee:create",
+            "employee:create:dashboard",
+            "employee:read:dashboard",
+            "employee:update:dashboard",
+            "employee:read",
+            "employee:update",
+            "employee:delete",
+            "employee:archive",
+            "employee:transfer",
+            "attendance:record",
+            "role:manage",
+            "user:assignRole",
+            "audit:read",
+            "organization:create",
+            "organization:update",
+            "organization:read",
+            "hr:dashboard",
+            "hr:dashboard:read",
+        ],
+        "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6" 
+        },
+        {
+        "name": "Branch Manager",
+            "permissions": [
+                "employee:read",
+                "employee:update",
+                "branch:manager:dashboard",
+                "branch:manage",
+            ],
+        "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6" 
+        }
     ])),  # JSON string for roles
     employees: Optional[str] = Form(json.dumps([
-    #     {
-    #     "title": "Mr",
-    #     "first_name": "Sam",
-    #     "middle_name":"Kwaku",
-    #     "last_name": "Badu",
-    #     "date_of_birth": "1980-01-01",
-    #     "email": "vboat54@gmail.com",
-    #     "contact_info": {},
-    #     "hire_date": str(current_date),
-    #     "termination_date": str(next_year),
-    #     "custom_data": {
-    #         "has_previous_name": True,
-    #         "previous_name": "Sam Kwaku Boateng",
-    #         "Nationality": "Ghanaian",
-    #         "National_ID": "GHA123456789",
-    #     },
-    #     "staff_id": "1234567890",
-    #     "profile_image_path": "google.com/sam",
-    #     "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-    # },
+        {
+        "title": "Mr",
+        "first_name": "Sam",
+        "middle_name":"Kwaku",
+        "last_name": "Badu",
+        "date_of_birth": "1980-01-01",
+        "email": "vboat54@gmail.com",
+        "contact_info": {},
+        "hire_date": str(current_date),
+        "termination_date": str(next_year),
+        "custom_data": {
+            "has_previous_name": True,
+            "previous_name": "Sam Kwaku Boateng",
+            "Nationality": "Ghanaian",
+            "National_ID": "GHA123456789",
+        },
+        "staff_id": "1234567890",
+        "profile_image_path": "google.com/sam",
+        "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+    },
     # {
     #     "title": "Mrs",
     #     "first_name": "Mary",
@@ -179,15 +225,15 @@ async def create_organization_form(
     
     ])),
     users: Optional[str] = Form(json.dumps([
-                # {
-                #     "username": "",
-                #     "email": "vboat54@gmail.com",   
-                #     "hashed_password": "",
-                #     "role_id": "123e4567-e89b-12d3-a456-426614174000",
-                #     "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", 
-                #     "image_path": "google.com/sam"
+                {
+                    "username": "",
+                    "email": "vboat54@gmail.com",   
+                    "hashed_password": "",
+                    "role_id": "123e4567-e89b-12d3-a456-426614174000",
+                    "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", 
+                    "image_path": "google.com/sam"
                     
-                # },
+                },
                 # {
                 #      "username": "",
                 #     "email": "mary@example.com",   
@@ -200,15 +246,17 @@ async def create_organization_form(
 
             ])),  # JSON string for users
     settings: Optional[str] = Form(json.dumps([
-        # {
-        #     "setting_name": "dashboard_theme",
-        #     "setting_value": {         "color": "blue",         "font_size": "12px"       } ,
-        #     "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-        # }
+        {
+            "setting_name": "dashboard_theme",
+            "setting_value": {         "color": "blue",         "font_size": "12px"       } ,
+            "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        }
         ])),  # JSON string for settings
     db: Session = Depends(get_db),
+    storage: BaseStorage = Depends(get_storage_service),
+    sms_svc: object = Depends(get_sms_service),
         # email_smtp_config: dict = Depends(get_smtp_config),
-    config: DevelopmentConfig = Depends(get_config),  # Inject config
+    config: ProductionConfig = Depends(get_config),  # Inject config
     ):
     
 
@@ -222,6 +270,13 @@ async def create_organization_form(
         users_data = json.loads(users) if users else []
         settings_data = json.loads(settings) if settings else []
 
+
+        print(f"""tenancies_data: {tenancies_data}\n
+              roles_data: {roles_data}\n
+              employee_data: {employee_data}\n
+              users_data: {users_data}\n
+              settings_data: {settings_data}\n
+            """)
        
 
          # Validate parsed JSON data
@@ -239,25 +294,49 @@ async def create_organization_form(
         gcs_client = GoogleCloudStorage(bucket_name)
 
        
-        logo_urls={}
-        # Process uploaded files for logos
+        # logo_urls={}
+        # # Process uploaded files for logos
+        # if logos:
+        #     logo_files = [{"filename": file.filename, "content": await file.read()} for file in logos]
+          
+        #     logo_urls = gcs_client.upload_to_gcs(files=logo_files, folder=f"organizations/{get_organization_acronym(name)}/logos") or {}
+
+        # UPLOAD logos
+        logo_urls = {}
+        print("logos: ", logos)
         if logos:
-            logo_files = [{"filename": file.filename, "content": await file.read()} for file in logos]
-          
-            logo_urls = gcs_client.upload_to_gcs(files=logo_files, folder=f"organizations/{get_organization_acronym(name)}/logos") or {}
-          
+            files = [
+                {"filename": f.filename, "content": await f.read(), "content_type": f.content_type}
+                for f in logos
+            ]
+            logo_urls = storage.upload(files, f"organizations/{get_organization_acronym(name)}/logos")      
 
         # Process uploaded files for user profile images
-        image_urls={}
+        # image_urls={}
+        # if user_images:
+        #     if len(user_images) != len(users_data):
+        #         raise HTTPException(
+        #             status_code=400,
+        #             detail="The number of user images does not match the number of users."
+        #         )
+
+        #     user_files = [{"filename": file.filename, "content": await file.read()} for file in user_images]
+        #     image_urls = gcs_client.upload_to_gcs(files=user_files, folder=f"organizations/{get_organization_acronym(name)}/user_profiles") or {}
+
+          # UPLOAD user images
+        image_urls = {}
         if user_images:
             if len(user_images) != len(users_data):
                 raise HTTPException(
                     status_code=400,
                     detail="The number of user images does not match the number of users."
                 )
+            user_files = [
+                {"filename": f.filename, "content": await f.read(), "content_type": f.content_type}
+                for f in user_images
+            ]
+            image_urls = storage.upload(user_files, f"organizations/{get_organization_acronym(name)}/user_profiles") 
 
-            user_files = [{"filename": file.filename, "content": await file.read()} for file in user_images]
-            image_urls = gcs_client.upload_to_gcs(files=user_files, folder=f"organizations/{get_organization_acronym(name)}/user_profiles") or {}
 
              # Attach image paths to users
             for i, user in enumerate(users_data):
@@ -307,6 +386,30 @@ async def create_organization_form(
             background_tasks, db, obj_in=organization_data
         )
 
+        # 4. Schedule SMS _here_, never in CRUD
+        for emp in employee_data:
+            ci = emp.get("contact_info", {})
+            # if someone accidentally sent a JSON‐string in contact_info, try decode
+            if isinstance(ci, str):
+                try:
+                    ci = json.loads(ci)
+                except:
+                    continue
+            if not isinstance(ci, dict):
+                continue
+
+            phone = ci.get("phone".lower()) or ci.get("mobile".lower()) or ci.get("contact".lower()) or ci.get("phone number".lower()) or \
+                    ci.get("phone_number".lower()) or ci.get("mobile number".lower()) or ci.get("mobile_number".lower()) or \
+                    ci.get("contact number".lower()) or ci.get("contact_number".lower())
+            if not phone:
+                continue
+
+            background_tasks.add_task(
+                sms_svc.send,
+                phone,
+                "org_signup",
+                {"first_name": emp.get("first_name", ""), "org_name": name}
+            )
 
         return organization
     except json.JSONDecodeError as e:
@@ -317,6 +420,243 @@ async def create_organization_form(
     except Exception as e:
         logger.exception(f"Unexpected error occurred: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+
+# Constants for Random Username and Password Generation
+CHARACTER_SET = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ012345679"
+USERNAME_LENGTH = 8
+PASSWORD_LENGTH = 12
+
+
+def hash_password(password: str) -> str:
+        return pwd_context.hash(password)
+
+
+
+# Helper function to generate random string
+def generate_random_string(length: int) -> str:
+    return ''.join(secrets.choice(CHARACTER_SET) for _ in range(length))
+
+def get_primary_logo(logos: dict) -> str:
+    """Return the first URL from the logos dict if available, else a default."""
+    if logos and isinstance(logos, dict):
+        # Simply return the first value.
+        for key, url in logos.items():
+            if url:
+                return url
+    return "https://example.com/default-logo.png"
+
+@app.post("/", response_model=OrganizationSchema, status_code=status.HTTP_201_CREATED)
+async def create_organization(
+    
+    background_tasks: BackgroundTasks,
+    phone_number: str = Form(...),
+    contact_email: EmailStr = Form(...),
+    contact_person: str = Form(...),
+    subscription_plan: str = Form("Basic"),
+    # employee_count: str = Form(...),
+    domain: str = Form(...),
+    organization_nature: str = Form(...),
+    organization_email: EmailStr = Form(...),
+    organization_name: str = Form(...),
+    country: str = Form(...),
+    org_type: str = Form(...),  # e.g., Private, Government, Public, NGO
+    employee_range: str = Form(...),  # e.g., "0-10"
+    logos: List[UploadFile] = File(None),
+    storage: BaseStorage = Depends(get_storage_service),
+    db: Session = Depends(get_db),
+):
+    """
+    Create a new organization, upload logos, create a default Admin role,
+    and create a User account for the contact person with a generated password.
+    """
+    # Validate subscription_plan
+    if subscription_plan not in ["Basic", "Premium"]:
+        raise HTTPException(status_code=400, detail="Invalid subscription plan.")
+
+    # Check if organization name or email already exist
+    existing_org = db.query(Organization).filter(
+        (Organization.name == organization_name) | (Organization.org_email == organization_email)
+    ).first()
+    if existing_org:
+        raise HTTPException(status_code=400, detail="Organization name or email already exists.")
+
+    # Upload logo files to external storage and store URLs
+    logo_urls = {}
+    if logos:
+        files_payload = []
+        for f in logos:
+            content = await f.read()
+            files_payload.append({
+                "filename": f.filename,
+                "content": content,
+                "content_type": f.content_type,
+            })
+        folder_path = f"organizations/{get_organization_acronym(organization_name)}/logos"
+        logo_urls = storage.upload(files_payload, folder_path)
+    
+    domain = f"https://{domain.strip()}" if not domain.startswith("http") else domain.strip()
+    if not domain.endswith("/"):
+        domain += "/"
+
+    # Create organization record
+    new_org = Organization(
+        name=organization_name.strip(),
+        org_email=organization_email,
+        country=country.strip(),
+        type=org_type.strip(),
+        nature=organization_nature.strip(),
+        employee_range=employee_range.strip(),
+        logos=logo_urls,  # Store returned URLs
+        access_url=domain,
+        subscription_plan=subscription_plan,
+        is_active=True,
+    )
+    db.add(new_org)
+    db.commit()
+    db.refresh(new_org)
+
+    default_perms = []
+    # if role_val.lower() == "staff":
+        # Locate the 'Employee' or 'staff' role configuration.
+    role_config = next(
+        (role_item for role_item in config.DEFAULT_ROLE_PERMISSIONS
+        if ("Admin".lower() == role_item["name"].lower()) or ("Admin".lower() in role_item["name"].lower()) ),
+        None
+    )
+    print("role_config: ", role_config)
+    if role_config:
+        default_perms = role_config.get("permissions", [])
+        print("default_perms: ", default_perms)
+    # Create a default Admin role for this organization
+    admin_role = Role(
+        name="Admin",
+        permissions=default_perms,  # Full access
+        organization_id=new_org.id,
+    )
+    db.add(admin_role)
+    db.commit()
+    db.refresh(admin_role)
+
+    # Generate user account for contact person (organization administrator)
+    username = contact_email
+    plain_password = generate_random_string(6)
+    hashed_pw = hash_password(plain_password)
+
+    new_emp = Employee(
+        title="Mr." if ("Mr" or "Mr.") in contact_person else "Ms.",
+        first_name=contact_person.split()[0],
+        middle_name=" ".join(contact_person.split()[1:-1]) if len(contact_person.split()) > 2 else "",
+        last_name=contact_person.split()[-1],
+        date_of_birth=None,  # Optional, can be added later
+        email=contact_email,
+        contact_info={"phone": phone_number},
+        hire_date=datetime.now(),
+        termination_date=datetime.now() + relativedelta(years=5),  # Default to 5 years
+        custom_data={},  # Optional, can be added later
+        organization_id=new_org.id,  # Associate with the new organization  
+    )
+    setattr(new_emp, '_role_id', admin_role.id)  # Set the role ID for the employee
+    # new_emp.organization_id = new_org.id  # Associate with the new organization
+    db.add(new_emp)
+    db.commit()
+    db.refresh(new_emp)
+
+    # new_user = User(
+    #     username=username,
+    #     email=contact_email,
+    #     hashed_password=hashed_pw,
+    #     role_id=admin_role.id,
+    #     organization_id=new_org.id,
+    #     is_active=True,
+    # )
+    # db.add(new_user)
+    # db.commit()
+    # db.refresh(new_user)
+
+    # # Send email with credentials
+    # email_subject = "Your Organization Admin Account Created"
+    # email_body = (
+    #     f"Hello {contact_person},\n\n"
+    #     f"Your organization '{organization_name}' has been successfully registered. "
+    #     f"Here are your admin credentials:\n"
+    #     f"Username: {username}\n"
+    #     f"Password: {plain_password}\n\n"
+    #     f"Please change your password after first login.\n\n"
+    #     f"Regards,\n"
+    #     f"Support Team"
+    # )
+
+    row_data = {
+        "first_name": contact_person.split()[0],
+        "last_name": contact_person.split()[-1] if len(contact_person.split()) > 1 else "",
+        "email": contact_email,
+    }
+
+    try:
+        # Use the first logo if multiple logos are provided
+        logo_urls = {k: v for k, v in logo_urls.items() if v}  # Filter out empty URLs
+        print(f"logo_urls: {logo_urls}")
+
+        # logo = next(iter(logo_urls.values())) if len(logo_urls) > 1 else logo_urls
+
+
+        logo = get_primary_logo(logo_urls)  # Get the primary logo URL
+        
+        image = gcs.extract_gcs_file_path(logo) if logo else "https://example.com/default-logo.png"
+        print(f"logo: {logo}")
+        print(f"image: {image}")
+        # Use the first logo URL as the logo for the email
+        # if isinstance(logo, dict):
+        #     logo = next(iter(logo.values()))
+        # elif isinstance(logo, list):
+        #     logo = logo[0] if logo else "https://example.com/default-logo.png"
+        # else:
+        #     logo = logo or "https://example.com/default-logo.png"
+        # # Ensure logo is a valid URL string
+        # if not isinstance(logo, str):
+        #     logo = "https://example.com/default-logo.png"
+
+        # Build the email body using the utility function
+        
+        
+        email_service = EmailService()  # Instantiate the email service
+                    # Send email with credentials
+        email_body = build_account_email_html(row_data=row_data, org_acronym=get_organization_acronym(organization_name), logo_url=image, login_href=domain, pwd=plain_password)
+                    # email_body = get_email_template(username, password, signin_page, obj_data['name'] )
+        await email_service.send_email(background_tasks, recipients=[contact_email], subject="Account Credentials", html_body=email_body)
+    except Exception as e:
+        # Log the email failure, but do not rollback organization creation
+        print(f"Failed to send email: {e}")
+
+    return new_org
+
+
+@app.get("/", response_model=List[OrganizationSchema])
+async def get_all_organizations(
+    db: Session = Depends(get_db)
+):
+    """
+    Fetch all active organizations.
+    """
+    orgs = db.query(Organization).filter(Organization.is_active == True).all()
+    return orgs
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -507,6 +847,27 @@ def delete_branch_endpoint(org_id: uuid.UUID, branch_id: uuid.UUID, db: Session 
         raise HTTPException(status_code=404, detail="Branch not found")
     delete_branch(db, branch)
     return {"detail": "Branch deleted successfully"}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

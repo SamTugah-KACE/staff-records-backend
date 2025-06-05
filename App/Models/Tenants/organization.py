@@ -14,7 +14,7 @@ class Organization(BaseModel):
     name = Column(String, nullable=False, unique=True)
     org_email = Column(String, nullable=False, unique=True)
     country = Column(String, nullable=False)
-    type = Column(String, nullable=False)  # Private, Government
+    type = Column(String, nullable=False)  # Private, Government or Public, and NGO 
     nature = Column(String, nullable=False)  # Single, Networked
     employee_range = Column(String, nullable=False)  # e.g., 0-10
     logos = Column(JSONB, nullable=True)  # Store logo paths
