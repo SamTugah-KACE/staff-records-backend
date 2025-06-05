@@ -397,7 +397,7 @@ class ProductionConfig(BaseConfig):
     AWS_S3_BUCKET: str = Field(..., env="AWS_BUCKET_NAME", description="AWS S3 Bucket name.")
 
     #Local File Storage
-    STORAGE_ROOT:str      = os.getenv("STORAGE_ROOT", "/mnt/data/file_storage")
+    STORAGE_ROOT:str      = Field("/mnt/data/file_storage", env="STORAGE_ROOT") #os.getenv("STORAGE_ROOT", "/mnt/data/file_storage")
 
     # Arkesel SMS
     ARKESEL_API_KEY: str = Field(..., env="ARKESEL_API_KEY", description="Arkesel API key for SMS service.")
