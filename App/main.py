@@ -59,7 +59,7 @@ app = FastAPI(
 
 # Static Files (if needed)
 # app.mount("/static", StaticFiles(directory="static"), name="static")
-app.mount("/static", StaticFiles(directory=config.STORAGE_ROOT), name="static")
+app.mount("/static", StaticFiles(directory=settings.STORAGE_ROOT), name="static")
 
 
 # CORS Configuration
