@@ -25,7 +25,7 @@ async def seed_superadmin():
             sa = SuperAdmin(
                 id=uuid.UUID("11111111-2222-3333-4444-555555555555"),
                 username="superadmin",
-                email="owner@yourapp.com",
+                email="samuel.kusi-duah@gi-kace.gov.gh",
                 hashed_password=hash_password(RAW_PASS),
                 security_key_hash=hash_password(RAW_KEY),
             )

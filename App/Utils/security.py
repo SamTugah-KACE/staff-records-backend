@@ -37,14 +37,14 @@ except ImportError:
 
 
 class Security:
-    def __init__(self, secret_key: str, algorithm: str, token_expire_minutes: int = 60): #, length:int=8#):
+    def __init__(self, secret_key: str, algorithm: str, token_expire_minutes: int = 480): #, length:int=8#):
         self.secret_key = secret_key
         self.algorithm = algorithm
         self.token_expire_minutes = token_expire_minutes
         # self.length =length
         # Setup a TTL cache for decoded tokens if possible
         if TTLCache:
-            self.token_cache = TTLCache(maxsize=1024, ttl=token_expire_minutes * 60)
+            self.token_cache = TTLCache(maxsize=1024, ttl=token_expire_minutes * 480)
         else:
             self.token_cache = {}
 
@@ -116,7 +116,7 @@ class Security:
     
     
 
-    def generate_token(self, data: Dict[str, Any], expires_in: int = 3600) -> str:
+    def generate_token(self, data: Dict[str, Any], expires_in: int = 28800) -> str:
         """
         Generates a JWT token that includes tenant-specific data (e.g., organization_id).
         """

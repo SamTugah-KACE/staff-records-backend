@@ -39,7 +39,7 @@ settings = ProductionConfig()
 
 # # Initialize the global Security instance.
 # # In a multi-tenant system sharing one schema, a common secret key is often used.
-global_security = Security(secret_key=settings.SECRET_KEY, algorithm=settings.ALGORITHM, token_expire_minutes=60)
+global_security = Security(secret_key=settings.SECRET_KEY, algorithm=settings.ALGORITHM, token_expire_minutes=480)
 
 
 

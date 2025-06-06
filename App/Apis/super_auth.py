@@ -4,7 +4,10 @@ from sqlalchemy.orm import Session
 from database.db_session import get_db
 from Models.superadmin import SuperAdmin
 from Utils.security import Security
+from Utils.config import ProductionConfig
 
+settings = ProductionConfig()
+global_security = Security(secret_key=settings.SECRET_KEY, algorithm=settings.ALGORITHM, token_expire_minutes=480)
 
 router = APIRouter(prefix="/superadmin/auth", tags=["SuperAdminAuth"])
 
@@ -16,13 +19,13 @@ def superadmin_login(
     db: Session = Depends(get_db)
 ):
     sa = db.query(SuperAdmin).filter_by(username=username, is_active=True).first()
-    if not sa or not Security.verify_password(password, sa.hashed_password):
+    if not sa or not global_security.verify_password(password, sa.hashed_password):
         raise HTTPException(401, "Invalid username or password")
 
-    if not Security.verify_password(security_key, sa.security_key_hash):
+    if not global_security.verify_password(security_key, sa.security_key_hash):
         raise HTTPException(401, "Invalid security key")
 
-    token = Security.create_access_token({"sub": str(sa.id), "role": "super_admin"})
+    token = global_security.create_access_token({"sub": str(sa.id), "role": "super_admin"})
     return {
         "access_token": token,
         "token_type": "bearer",
