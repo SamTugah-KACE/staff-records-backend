@@ -18,6 +18,7 @@ async def _build_summary_payload(db: Session, org_id: UUID):
     """
     # Fetch the organization
     org = db.query(Organization).get(org_id)
+    print("Building summary for org, org object:", org)
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 

@@ -44,5 +44,5 @@ def superadmin_login(
         "access_token": token,
         "token_type": "bearer",
         "username": sa.username,
-        "dashboard_url": "/superadmin/dashboard"
+        "dashboard_url": "/dev/dashboard"
     }

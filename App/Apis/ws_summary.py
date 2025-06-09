@@ -29,10 +29,12 @@ async def websocket_summary(
     # 1) Authenticate
     try:
         user = await get_current_user_ws(token, db)
+        print("user identified in ws summary:", user)
     except Exception:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
+    print(f"WebSocket connection attempt for org_id={organization_id}, user_id={user_id}\n\n{str(user.organization_id) != organization_id or str(user.id) != user_id}")
     # 2) Tenant + identity check
     if str(user.organization_id) != organization_id or str(user.id) != user_id:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
