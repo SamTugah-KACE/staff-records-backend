@@ -10,7 +10,7 @@ from .summary import _build_summary_payload
 from Models.Tenants.role import Role
 
 
-router = APIRouter(prefix="/organizations", tags=["WebSocket Summary"])
+router = APIRouter()
 
 @router.websocket("/ws/summary/{organization_id}/{user_id}")
 async def websocket_summary(
@@ -28,6 +28,10 @@ async def websocket_summary(
     """
     # 1) Authenticate
     try:
+        print("WebSocket summary connection attempt with token:", token)
+        if not token:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
         user = await get_current_user_ws(token, db)
         print("user identified in ws summary:", user)
     except Exception:
@@ -61,6 +65,7 @@ async def websocket_summary(
 
         # 5) Build and send initial summary
         initial_payload = await _build_summary_payload(db, org_uuid)
+        print("Initial payload for WebSocket summary:", initial_payload)
         await websocket.send_text(json.dumps({"type": "initial", "payload": initial_payload}))
 
         # 6) Wait for client “refresh” messages to re‐send updated payload
