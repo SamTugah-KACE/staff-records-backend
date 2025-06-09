@@ -40,7 +40,7 @@ import os
 from datetime import datetime, date, timedelta
 import re
 from Crud.adv import RoleCache
-from Utils.util import Validator, get_organization_acronym
+from Utils.util import Validator, get_organization_acronym, extract_items
 from Utils.config import BaseConfig, DevelopmentConfig, get_config
 from Utils.security import Security
 import aiohttp
@@ -877,6 +877,8 @@ class UserCRUD:
             raise HTTPException(status_code=404, detail="Organization not found.")
 
         logo_url = self.get_primary_logo(org.logos or {})
+        logo_url = extract_items(logo_url)
+        print(f"\norganization logo source: {logo_url}")
         org_acronym = get_organization_acronym(org.name)  # Or a function to get acronym.
         login_href = f"{org.access_url}/signin" if org.access_url else "https://example.com/login"
 
@@ -954,18 +956,28 @@ class UserCRUD:
                                 branch_val = str(branch_val).strip()
                                 branch_location = str(row_data.get("location", branch_val)).strip()
                                 if org.nature.strip().lower() == "single managed":
-                                    raise HTTPException(
-                                        status_code=400,
-                                        detail=f"Organization '{org.name}' is single managed; branch data is not allowed."
-                                    )
-                                # Import Branch model from your organization module.
-                                from Models.Tenants.organization import Branch
-                                branch_id = self.process_related_field(db, organization_id, branch_val, Branch, "name", {"location": branch_location, "manager_id": None})
+                                    row_data.pop(branch_key, None)
+                                    print(f"After pop {branch_key} from {row_data}")
+                                    branch_id = None
+                                    # model_data.pop(branch_key, None)
+                                    # print(f"\n\nAfter {model_data} pop {branch_key}")
+                                    # raise HTTPException(
+                                    #     status_code=400,
+                                    #     detail=f"Organization '{org.name}' is single managed; branch data is not allowed."
+                                    # )
+                                else:
+                                    # Import Branch model from your organization module.
+                                    from Models.Tenants.organization import Branch
+                                    branch_id = self.process_related_field(db, organization_id, branch_val, Branch, "name", {"location": branch_location, "manager_id": None})
+                        
+                        print(f"branch_id = {branch_id}")
                         # Process department if present in model_data.
                         if "department" in model_data and model_data["department"]:
                             dept_val = str(model_data["department"]).strip()
                             defaults = {"branch_id": branch_id} if branch_id else {}
+                            print(f"defaults = {defaults}")
                             dept_id = self.process_related_field(db, organization_id, dept_val, Department, "name", defaults)
+                            print(f"processed department with id = {dept_id}")
                             model_data["department_id"] = dept_id
                             model_data.pop("department", None)
 

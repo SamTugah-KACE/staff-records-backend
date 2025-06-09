@@ -5,7 +5,42 @@ from typing import Optional, Set
 import pandas as pd
 import math
 
-from fastapi import Request
+from fastapi import Request, HTTPException
+from typing import Any, Dict, List, TypeVar, Union
+
+T = TypeVar("T")
+
+
+def extract_items(param: Union[Dict[Any, T], List[T], T]) -> T:
+    """
+    Normalize an incoming parameter into a single value.
+
+    - If param is a dict, return its first value.
+    - If param is a list, return its first element.
+    - If param is a string (or any other scalar), return it as-is.
+
+    Raises:
+        HTTPException: if the dict or list is empty.
+    """
+    # Strings are iterable, so check them before lists
+    if isinstance(param, str):
+        return param  # return the string unchanged
+
+    if isinstance(param, dict):
+        try:
+            return next(iter(param.values()))
+        except StopIteration:
+            raise HTTPException(status_code=400, detail="Dict parameter is empty")
+
+    if isinstance(param, list):
+        try:
+            return param[0]
+        except IndexError:
+            raise HTTPException(status_code=400, detail="List parameter is empty")
+
+    # For any other type (int, float, custom object, etc.), return as-is
+    return param
+
 
 def get_create_user_url(request: Request) -> str:
     """
@@ -31,7 +66,7 @@ def sanitize_row_data(row_data: dict) -> dict:
     return sanitized
 
 
-def get_organization_acronym(org_name: str, stopwords: Optional[Set[str]] = None) -> str:
+def get_organization_acronym_(org_name: str, stopwords: Optional[Set[str]] = None) -> str:
     """
     Generate an acronym for an organization name.
 
@@ -139,6 +174,101 @@ def get_organization_acronym(org_name: str, stopwords: Optional[Set[str]] = None
         return f"{primary}-{secondary}"
     else:
         return primary + secondary
+
+
+
+
+
+from typing import Optional, Set
+
+DEFAULT_STOPWORDS = {"of", "the", "and", "for", "in", "at", "by", "a", "an"}
+
+
+def get_organization_acronym(
+    org_name: str,
+    *,
+    stopwords: Optional[Set[str]] = None,
+    max_original_length: int = 10,
+    max_original_tokens: int = 2,
+    max_acronym_secondary: int = 4,
+) -> str:
+    """
+    Return a user-friendly label for an organization name:
+      - If the name is a single “short” word (<= max_original_length chars),
+        returns it title-cased (e.g. "pixar" -> "Pixar").
+      - If the name is 2 words or fewer (<= max_original_tokens) and its total
+        length is <= max_original_length * max_original_tokens,
+        returns title-cased original (e.g. "acme corp" -> "Acme Corp").
+      - Otherwise, generates an acronym, stripping common stopwords.
+
+    Args:
+        org_name: Raw organization name.
+        stopwords: Words to ignore in acronym (defaults to common small words).
+        max_original_length: Max chars for a “short” single word.
+        max_original_tokens: Max words to keep as original title.
+        max_acronym_secondary: Max non-stopword tokens for acronym.
+
+    Returns:
+        A cleaned title or an acronym (all in ASCII letters).
+    """
+    if not isinstance(org_name, str) or not org_name.strip():
+        raise ValueError("Organization name must be a nonempty string.")
+
+    stopwords = stopwords or DEFAULT_STOPWORDS
+
+    # Normalize whitespace
+    parts = org_name.strip().split()
+    total_length = len(org_name.strip())
+
+    # 1) Short single word → Title-case
+    if len(parts) == 1 and len(parts[0]) <= max_original_length:
+        return parts[0].capitalize()
+
+    # 2) Very short multi-word name → Title-case full name
+    if len(parts) <= max_original_tokens and total_length <= max_original_length * max_original_tokens:
+        return " ".join(p.capitalize() for p in parts)
+
+    # 3) Fallback to acronym
+    return _make_acronym(parts, stopwords, max_acronym_secondary)
+
+
+def _make_acronym(tokens: list[str], stopwords: Set[str], max_secondary: int) -> str:
+    """
+    Build an acronym from token list:
+      - Take first letter of first token (hyphenated → each sub-piece).
+      - From remaining tokens, drop stopwords, take up to max_secondary,
+        first letters only.
+      - Join with hyphen if the first token was hyphenated.
+    """
+    # Primary
+    first = tokens[0]
+    if "-" in first:
+        subtoks = [s for s in first.split("-") if s]
+        primary = "".join(s[0].upper() for s in subtoks)
+        hyphenated = True
+    else:
+        primary = first[0].upper()
+        hyphenated = False
+
+    # Secondary
+    second_tokens = tokens[1:]
+    # Filter stopwords
+    filtered = [
+        t for t in second_tokens
+        if t.strip(" ,.;:-").lower() not in stopwords and t.strip(" ,.;:-")
+    ]
+    if not filtered:
+        filtered = [t for t in second_tokens if t.strip(" ,.;:-")]
+
+    secondary_letters = [t.strip(" ,.;:-")[0].upper() for t in filtered[:max_secondary]]
+    secondary = "".join(secondary_letters)
+
+    if not secondary:
+        return primary
+    if hyphenated:
+        return f"{primary}-{secondary}"
+    return primary + secondary
+
 
 
 

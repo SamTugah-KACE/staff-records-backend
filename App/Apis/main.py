@@ -36,7 +36,7 @@ from Schemas.schemas import (OrganizationCreateSchema, OrganizationSchema,
                          NextOfKinCreateSchema, NextOfKinSchema, FileStorageSchema,
                          AuditLogSchema, SystemSettingSchema, DashboardSchema)
 from Service.gcs_service import GoogleCloudStorage
-from Utils.util import   get_create_user_url, get_organization_acronym  # Import your utility classes
+from Utils.util import   extract_items, get_create_user_url, get_organization_acronym  # Import your utility classes
 import json
 from Service.gcs_service import GoogleCloudStorage
 from Utils.config import ProductionConfig, get_config
@@ -605,7 +605,7 @@ async def create_organization(
         
         image = gcs.extract_gcs_file_path(logo) if logo else "https://example.com/default-logo.png"
         print(f"logo: {logo}")
-        print(f"image: {image}")
+        print(f"final image: {logo}")
         # Use the first logo URL as the logo for the email
         # if isinstance(logo, dict):
         #     logo = next(iter(logo.values()))
@@ -619,10 +619,11 @@ async def create_organization(
 
         # Build the email body using the utility function
         
+        print(f"image: {extract_items(image)}")
         
         email_service = EmailService()  # Instantiate the email service
                     # Send email with credentials
-        email_body = build_account_email_html(row_data=row_data, org_acronym=get_organization_acronym(organization_name), logo_url=image, login_href=domain, pwd=plain_password)
+        email_body = build_account_email_html(row_data=row_data, org_acronym=get_organization_acronym(organization_name), logo_url=extract_items(logo), login_href=domain, pwd=plain_password)
                     # email_body = get_email_template(username, password, signin_page, obj_data['name'] )
         await email_service.send_email(background_tasks, recipients=[contact_email], subject="Account Credentials", html_body=email_body)
     except Exception as e:

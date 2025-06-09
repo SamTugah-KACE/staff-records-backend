@@ -24,7 +24,7 @@ from sqlalchemy.orm import joinedload
 from Utils.serialize_4_json import serialize_for_json
 import json 
 from Utils.security import pwd_context, Security
-from Utils.util import get_organization_acronym
+from Utils.util import get_organization_acronym, extract_items
 from Utils.config import DevelopmentConfig
 from Utils.sms_utils import get_sms_service
 
@@ -419,9 +419,11 @@ class CRUDBase:
                     logos = obj_data["logos"]
                     logo = next(iter(logos.values())) if len(logos) > 1 else logos
 
+
+
                     email_service = EmailService()  # Instantiate the email service
                     # Send email with credentials
-                    email_body = build_account_email_html(org_dict, logo, signin_page, password)
+                    email_body = build_account_email_html(org_dict, extract_items(logo), signin_page, password)
                     # email_body = get_email_template(username, password, signin_page, obj_data['name'] )
                     await email_service.send_email(background_tasks, recipients=[user_data["email"]], subject="Account Credentials", html_body=email_body)
 
@@ -463,7 +465,7 @@ class CRUDBase:
                             self.log_audit(db, "CREATE", "terms_and_conditions", terms_obj.id, created_by)
 
                         del tenancy_data["terms_and_conditions"]
-
+                
                             
                 tenancy_obj = Tenancy(
                     organization_id=db_obj.id,

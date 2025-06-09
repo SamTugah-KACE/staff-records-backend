@@ -361,6 +361,7 @@ class BaseConfig(BaseSettings):
         return value
     
     EXCEL_FILE_NAME:str = Field("sample_staff_records.xlsx", env="EXCEL_FILE_NAME", description="Name of the sample Excel file.")
+    EXCEL_FILE_NAME_SINGLE:str = Field("sample_staff_records_.xlsx", env="EXCEL_FILE_NAME_SINGLE", description="Name of the sample excel file for single managed organization")
     EXCEL_FILE_URL:str = Field("https://gi-kace-solutions.onrender.com/api/download/download-excel", env="EXCEL_FILE_URL", description="URL to download the sample Excel file.")
     EXCEL_FILE_PATH:str = "App/Apis/sample_staff_records.xlsx"
 
