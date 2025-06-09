@@ -27,12 +27,14 @@ from .summary import router as summary
 from .ws_employee import router as emp_ws
 from .UserBase import router as user_base
 from .employee_download import router as employee_download
+from .ws_summary import router as summary_ws
 # from notification.socket import router as notif
 
 api =APIRouter()
 
 # Include Routers
 api.include_router(summary, prefix="/api")
+api.include_router(summary_ws)
 api.include_router(emp_ws)
 api.include_router(super_auth, prefix="/api/super-auth", tags=["Super Auth"])
 api.include_router(uploadfile, prefix="/api/uploadfile", tags=["UploadFile"])
