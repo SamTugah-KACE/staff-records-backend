@@ -34,7 +34,7 @@ api =APIRouter()
 
 # Include Routers
 api.include_router(summary, prefix="/api")
-# api.include_router(summary_ws)
+api.include_router(summary_ws)
 api.include_router(emp_ws)
 api.include_router(super_auth, prefix="/api/super-auth", tags=["Super Auth"])
 api.include_router(uploadfile, prefix="/api/uploadfile", tags=["UploadFile"])
