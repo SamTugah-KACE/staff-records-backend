@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Configuration from environment variables
 EXCEL_FILE_NAME = os.getenv("EXCEL_FILE_NAME", "sample_staff_records.xlsx")
-EXCEL_FILE_NAME_SINGLE = os.getenv("EXCEL_FILE_NAME_SINGLE", "sample_staff_recordS_.xlsx")
+EXCEL_FILE_NAME_SINGLE = os.getenv("EXCEL_FILE_NAME_SINGLE", "sample_staff_records_.xlsx")
 BASE_DIR = Path(__file__).resolve().parent
 FILE_PATH = BASE_DIR / EXCEL_FILE_NAME
 
