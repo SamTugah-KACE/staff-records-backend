@@ -460,6 +460,17 @@ class EmployeeSchema(BaseSchema):
     class Config:
         from_attributes = True
 
+
+class StaffOption(BaseModel):
+    id: UUID
+    title: str
+    first_name: str
+    middle_name: str | None
+    last_name: str
+
+    class Config:
+        orm_mode = True
+
 # Academic Qualification Schemas
 class AcademicQualificationCreateSchema(BaseModel):
     employee_id: UUID

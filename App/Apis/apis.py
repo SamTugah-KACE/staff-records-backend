@@ -1,5 +1,5 @@
 import json
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, BackgroundTasks, Query, Form
+from fastapi import APIRouter, Depends, File, status, HTTPException, UploadFile, BackgroundTasks, Query, Form
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List, Dict, Union
@@ -23,7 +23,7 @@ from Models.models import (
 from Schemas.schemas import (
     OrganizationCreateSchema, OrganizationSchema,
     DepartmentCreate, DepartmentOut, DepartmentUpdate,
-    RoleCreateSchema, RoleSchema,
+    RoleCreateSchema, RoleSchema, StaffOption,
     UserCreateSchema, UserSchema,
     EmployeeCreateSchema, EmployeeSchema,
     AcademicQualificationCreateSchema, AcademicQualificationSchema,
@@ -31,7 +31,7 @@ from Schemas.schemas import (
     NextOfKinCreateSchema,  NextOfKinSchema,
     FileStorageSchema, 
 )
-from Crud.auth import get_db, require_permissions  # RBAC dependency from earlier
+from Crud.auth import get_current_user, get_db, require_permissions  # RBAC dependency from earlier
 from Crud.role_crud import (create_role, get_role, get_role_by_id_and_org_id, get_roles_by_org, 
                             update_role, delete_role, get_role_permissions, get_roles_by_permission, 
                             get_role_by_name, get_role_by_name_and_org, get_role_by_name_and_org_id, 
@@ -66,6 +66,50 @@ emergency_contact_crud = CRUDBase(EmergencyContact, AuditLog)
 next_of_kin_crud = CRUDBase(NextOfKin, AuditLog)
 file_storage_crud = CRUDBase(FileStorage, AuditLog)
 
+
+@router.get(
+    "/staff",
+    response_model=List[StaffOption],
+    summary="List all staff in your org (excluding yourself)",
+)
+def list_staff(
+    organization_id: UUID = Query(..., description="Your tenant’s org ID"),
+    skip: int = Query(0, ge=0, description="How many records to skip"),
+    limit: int = Query(100, ge=1, le=1000, description="Max records to return"),
+    sort: str = Query("asc", regex="^(asc|desc)$", description="Sort by first name"),
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Returns a paginated list of employees in the given organization,
+    excluding the employee record of the requesting user.
+    """
+    user: User = current_user["user"]
+
+    # 1) Tenant isolation
+    if user.organization_id != organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not permitted for this organization."
+        )
+
+    # 2) Base query, exclude yourself by email
+    query = (
+        db.query(Employee)
+          .filter(Employee.organization_id == organization_id)
+          .filter(Employee.email != user.email)
+    )
+
+    # 3) Sorting
+    if sort == "asc":
+        query = query.order_by(Employee.first_name.asc())
+    else:
+        query = query.order_by(Employee.first_name.desc())
+
+    # 4) Pagination
+    staff_list = query.offset(skip).limit(limit).all()
+
+    return staff_list
 
 
 
