@@ -119,7 +119,10 @@ def create_department_endpoint(org_id: uuid.UUID, dept_in: DepartmentCreate, db:
     """
     Create a new department for the given organization.
     """
-    department = create_department(db, dept_in, organization_id=org_id)
+    org = db.query(Organization).filter(Organization.id == org_id).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    department = create_department(db, dept_in)
     return department
 
 @router.get("/organizations/{org_id}/departments", response_model=list[DepartmentOut],  tags=["Organizational Departments"])

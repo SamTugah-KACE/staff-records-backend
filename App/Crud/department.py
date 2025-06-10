@@ -5,19 +5,19 @@ from Models.models import Department
 from Schemas.schemas import DepartmentCreate, DepartmentUpdate
 import uuid
 
-def create_department(db: Session, dept_in: DepartmentCreate, organization_id: uuid.UUID) -> Department:
+def create_department(db: Session, dept_in: DepartmentCreate) -> Department:
     try:
 
         org = db.query(Organization).filter(Organization.id == dept_in.organization_id).first()
         if not org:
             raise HTTPException(status_code=400, detail="Organization not found.")
 
-        is_dept_exist = db.query(Department).filter(Department.name == dept_in.name, Organization.id == organization_id).first()
+        is_dept_exist = db.query(Department).filter(Department.name == dept_in.name.strip(), Organization.id == dept_in.organization_id).first()
         if is_dept_exist:
             raise HTTPException(status_code=400, detail=f"{dept_in.name} already exist.")
         
         if dept_in.department_head_id:
-            is_hod_already_assigned = db.query(Department).filter(Department.department_head_id == dept_in.department_head_id, Organization.id == organization_id).first()
+            is_hod_already_assigned = db.query(Department).filter(Department.department_head_id == dept_in.department_head_id, Organization.id == dept_in.organization_id).first()
             if is_hod_already_assigned:
                 raise HTTPException(status_code=400, detail="Staff[HoD] already assigned to another Department.")
         
@@ -27,12 +27,12 @@ def create_department(db: Session, dept_in: DepartmentCreate, organization_id: u
             if org.nature != "Branch Managed":
                 raise HTTPException(status_code=400, detail=f"'{org.name}' data indicates its Managed Single-handedly, therefore, there's no need to assign '{dept_in.name}' to a given Branch.")
         
-            is_dept_exist_in_same_branch = db.query(Department).filter(Department.name == dept_in.name, Branch.id == dept_in.branch_id).first()
+            is_dept_exist_in_same_branch = db.query(Department).filter(Department.name == dept_in.name.strip(), Branch.id == dept_in.branch_id).first()
             if is_dept_exist_in_same_branch:
                 raise HTTPException(status_code=400, detail="Department already exist within same same Branch.")
             
 
-        department = Department(**dept_in.dict(), organization_id=organization_id)
+        department = Department(**dept_in.dict(), organization_id=dept_in.organization_id)
         db.add(department)
         db.commit()
         db.refresh(department)
