@@ -1594,6 +1594,8 @@ class UserCRUD:
         password = generate_random_string(6)
         hashed_password = pwd_context.hash(password)
 
+        print(f"Generated credentials for {user_name} with plain password: {password} - this should be logged securely.\n\nits hash is: {hashed_password} merely for testing purposes.")
+
         # Step 5: Map UI keys.
         employee_data = map_employee_fields(employee_data)
 
@@ -1745,6 +1747,7 @@ class UserCRUD:
         if created_by:
             setattr(employee_record, "_uploaded_by_id", created_by)
         setattr(employee_record, "_role_id", role_id) 
+        setattr(employee_record, "_plain_password", password)
         if image_url:
             setattr(employee_record, "_user_image", image_url)
         db.add(employee_record)

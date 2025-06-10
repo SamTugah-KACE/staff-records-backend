@@ -422,7 +422,7 @@ def create_user_for_employee(mapper, connection, target):
         # Generate a username from the employee’s first name plus 4 random digits.
         username = f"{target.email}"
         hashed_pw = global_security.hash_password(password_plain)
-
+        print(f"[after_insert] Employee {target.id} | Username: {username} | Hashed Password: {hashed_pw}")
         
         user_table = User.__table__
         # Check if a User record for this Employee (by email and organization) already exists.
