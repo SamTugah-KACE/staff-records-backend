@@ -434,29 +434,64 @@ FIELD_SYNONYMS = {
     "first name": "first_name",
     "firstname": "first_name",
     "firstName": "first_name",
+    "given name": "first_name",
+    "givenname": "first_name",
     "middle name": "middle_name",
     "middlename": "middle_name",
     "last name": "last_name",
     "lastname": "last_name",
     "surname": "last_name",
     "title": "title",
+    "name prefix": "title",  # e.g. Mr., Ms., Dr.
+    "name prefix (title)": "title",
+    "name prefix (salutation)": "title",  # e.g. Mr., Ms., Dr.
+    "prefix": "title",  # e.g. Mr., Ms., Dr.
+    "salutation": "title",  # e.g. Mr., Ms., Dr.
     "sex": "gender",
     "gender": "gender",
     "date of birth": "date_of_birth",
     "dob": "date_of_birth",
+    "birth date": "date_of_birth",
+    "birth": "date_of_birth",
+    "date of_b": "date_of_birth",  # e.g. in case the file calls it date_of_b
+    "DoB": "date_of_birth",
     "marital status": "marital_status",
     "email": "email",
+    "email address": "email",
+    "contact info": "contact_info",
+    "contact information": "contact_info",
+    "contact details": "contact_info",
+    "contact number": "contact_info",
+    "contact phone": "contact_info",
+    "contact mobile": "contact_info",
+    "contact home address": "contact_info",
+    "contact residential address": "contact_info",
+    "contact address": "contact_info",
+    "address": "contact_info",
+    "phone number": "contact_info",
     "contact": "contact_info",
     "phone": "contact_info",
     "mobile": "contact_info",
     "home address": "contact_info",
     "residential address": "contact_info",
     "profile image":"profile_image_path",
+    "employee image": "profile_image_path",
+    "profile picture": "profile_image_path",
+    "profile pic": "profile_image_path",
+    "profile_image": "profile_image_path",
+    "profile_image_path": "profile_image_path",
+    "employee profile image": "profile_image_path",
+    "employee profile picture": "profile_image_path",
+    "employee profile pic": "profile_image_path",
+    "employee profile_image": "profile_image_path",
+    "employee profile_image_path": "profile_image_path",
+    "last promotion date": "last_promotion_date",
     "hire date": "hire_date",
     "termination date": "termination_date",
     "employee type": "employee_type",  # For mapping to the EmployeeType table.
     "rank": "rank",  # For mapping to the Rank table.
     "assigned_dept": "department",  # For mapping to the Department table.
+    "assigned department": "department",  # For mapping to the Department table.
     "assigned_department": "department",  # For mapping to the Department table.
     "department": "department",  # For mapping to the Department table, i.e. in the case where the manager assigns this new employee to a department or as the head_of_department.
     "branch": "branch",  # For mapping to the Branch table, i.e. in the case where the manager assigns this new employee as the branch manager.
@@ -489,6 +524,22 @@ RELATED_MODEL_MAP = {
     "payment_details": (
         EmployeePaymentDetail,
         {"payment_mode", "bank_name", "account_number", "mobile_money_provider", "wallet_number", "additional_info", "is_verified"}
+    ),
+    "employment_history": (
+        EmploymentHistory,
+        {"job_title", "company", "start_date", "end_date", "details", "documents_path"}
+    ),
+    "emergency_contacts": (
+        EmergencyContact,
+        {"name", "relation", "emergency_phone", "emergency_address", "details"}
+    ),
+    "next_of_kins": (
+        NextOfKin,
+        {"name", "relation", "nok_phone", "nok_address", "details"}
+    ),
+    "salary_payments": (
+        SalaryPayment,
+        {"amount", "currency", "payment_date", "payment_method", "transaction_id", "status", "approved_by"}
     ),
     # Add more related mappings as needed.
 }
@@ -1537,7 +1588,9 @@ class UserCRUD:
             raise HTTPException(status_code=404, detail="Role not found.")
 
         # Step 4: Generate credentials.
-        user_name = f"{employee_data.get('first_name').lower()}{employee_data.get('last_name').lower()}{generate_random_string(4)}"
+        use_alias = f"{employee_data.get('first_name').lower()}{employee_data.get('last_name').lower()}{generate_random_string(4)}"
+        #use employee email as username if it exists
+        user_name = email if email else use_alias
         password = generate_random_string(6)
         hashed_password = pwd_context.hash(password)
 
@@ -1547,7 +1600,7 @@ class UserCRUD:
         # Step 6: Separate base fields from extra fields.
         base_fields = {"first_name", "middle_name", "last_name", "title", "gender",
                     "date_of_birth", "marital_status", "email", "contact_info",
-                    "hire_date", "termination_date", "staff_id"}
+                    "hire_date", "termination_date", "staff_id", "profile_image_path"}
         base_employee_data = {k: employee_data[k] for k in employee_data if k in base_fields}
         extra_fields = {k: employee_data[k] for k in employee_data if k not in base_fields and k not in {"employee_type", "next_of_kin", "rank", "department", "branch", "Role"}}
         custom_data = employee_data.get("custom_data", {})
@@ -1593,6 +1646,33 @@ class UserCRUD:
             else:
                 # Optionally, create a new Rank record.
                 raise HTTPException(status_code=404, detail="Rank not found.")
+        
+        # Step 9: Extract department and branch if provided.
+        department_id = None
+        branch_id = None
+        department_value = employee_data.get("department")
+        branch_value = employee_data.get("branch")
+        if department_value:
+            department_value = department_value.strip()
+            department_obj = db.query(Department).filter(
+                Department.name.ilike(department_value) or Department.id == department_value,
+                Department.organization_id == organization_id
+            ).first()
+            if department_obj:
+                department_id = department_obj.id
+            else:
+                raise HTTPException(status_code=404, detail="Department not found.")
+        if branch_value:
+            branch_value = branch_value.strip()
+            branch_obj = db.query(Branch).filter(
+                Branch.name.ilike(branch_value),
+                Branch.organization_id == organization_id
+            ).first()
+            if branch_obj:
+                branch_id = branch_obj.id
+            else:
+                raise HTTPException(status_code=404, detail="Branch not found.")
+            
 
         # Step 9: Extract next_of_kin data.
         next_of_kin_list = employee_data.get("next_of_kin")
@@ -1658,11 +1738,15 @@ class UserCRUD:
             organization_id=organization_id,
             employee_type_id=employee_type_id,
             rank_id=rank_id,
+            department_id=department_id if department_id else None,
+            staff_id=employee_data.get("staff_id") if employee_data.get("staff_id") else None,
             is_active=True,
         )
         if created_by:
             setattr(employee_record, "_uploaded_by_id", created_by)
         setattr(employee_record, "_role_id", role_id) 
+        if image_url:
+            setattr(employee_record, "_user_image", image_url)
         db.add(employee_record)
         db.commit()
         db.refresh(employee_record)
