@@ -302,6 +302,13 @@ async def ws_employee_inputs(
 ):
     # 1) Authenticate BEFORE accept()
     try:
+        print("WebSocket connection attempt with token:", token)
+        if not token:
+            print("No token provided in WebSocket connection attempt")
+            # invalid/missing token → reject handshake
+            # missing token → reject handshake
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
         user = await global_security.get_current_user_ws(token, db)
         print("user role_id in websocket main:: ", user.role_id)
         print("user organization in websocket main:: ", user.organization_id)
