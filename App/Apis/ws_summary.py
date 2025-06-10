@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import Depends, Query, WebSocket, WebSocketDisconnect, APIRouter, status
 from sqlalchemy.orm import Session
 from Models.Tenants.organization import Organization
@@ -67,16 +68,22 @@ async def websocket_summary(
         await websocket.send_json(message)
         print("✅ sent initial payload")
 
+        try:
+            while True:
+                await asyncio.sleep(3600)
+        except WebSocketDisconnect:
+            await manager.unregister(organization_id, user_id, websocket)
+
         # 6) Wait for “refresh”
-        while True:
-            data = await websocket.receive_text()
-            if data == "refresh":
-                schema_obj = await _build_summary_payload(db, org_uuid)
-                payload = jsonable_encoder(schema_obj)
-                await websocket.send_json({"type": "update", "payload": payload})
-                print("✅ sent update payload")
-            else:
-                continue
+        # while True:
+        #     data = await websocket.receive_text()
+        #     if data == "refresh":
+        #         schema_obj = await _build_summary_payload(db, org_uuid)
+        #         payload = jsonable_encoder(schema_obj)
+        #         await websocket.send_json({"type": "update", "payload": payload})
+        #         print("✅ sent update payload")
+        #     else:
+        #         continue
 
     except WebSocketDisconnect:
         print("🔌 websocket disconnected by client")

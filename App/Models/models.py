@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Index, String, Boolean, JSON, Date, DateTime, Integer, ForeignKey, DECIMAL,
-    Table, create_engine, CheckConstraint, LargeBinary, event, inspect, select, update
+    Table, UniqueConstraint, create_engine, CheckConstraint, LargeBinary, event, inspect, select, update
 )
 from sqlalchemy.ext.mutable import MutableList
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -231,6 +231,12 @@ class Department(BaseModel):
     organization = relationship("Organization", back_populates="departments")
     # Optional: relationship to get the full Employee record for the department head.
     department_head = relationship("Employee", foreign_keys=[department_head_id])
+
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "name", name="uq_department_name_per_org"),
+        UniqueConstraint("organization_id", "department_head_id", name="uq_hod_per_org"),
+    )
 
 
 

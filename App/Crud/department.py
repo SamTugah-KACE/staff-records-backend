@@ -9,6 +9,7 @@ from Models.models import Department
 from Schemas.schemas import DepartmentCreate, DepartmentUpdate, DepartmentOut
 import uuid
 from notification.socket import manager
+from sqlalchemy.exc import IntegrityError
 
 def create_department(organization_id:uuid.UUID, db: Session, dept_in: DepartmentCreate) -> Department:
     try:
@@ -17,14 +18,14 @@ def create_department(organization_id:uuid.UUID, db: Session, dept_in: Departmen
         if not org:
             raise HTTPException(status_code=400, detail="Organization not found.")
 
-        is_dept_exist = db.query(Department).filter(Department.name == dept_in.name.strip(), Organization.id == organization_id).first()
-        if is_dept_exist:
-            raise HTTPException(status_code=400, detail=f"{dept_in.name} already exist.")
+        # is_dept_exist = db.query(Department).filter(Department.name == dept_in.name.strip(), Organization.id == organization_id).first()
+        # if is_dept_exist:
+        #     raise HTTPException(status_code=400, detail=f"{dept_in.name} already exist.")
         
-        if dept_in.department_head_id:
-            is_hod_already_assigned = db.query(Department).filter(Department.department_head_id == dept_in.department_head_id, Organization.id == organization_id).first()
-            if is_hod_already_assigned:
-                raise HTTPException(status_code=400, detail="Staff[HoD] already assigned to another Department.")
+        # if dept_in.department_head_id:
+        #     is_hod_already_assigned = db.query(Department).filter(Department.department_head_id == dept_in.department_head_id, Organization.id == organization_id).first()
+        #     if is_hod_already_assigned:
+        #         raise HTTPException(status_code=400, detail="Staff[HoD] already assigned to another Department.")
         
         
         
@@ -52,6 +53,17 @@ def create_department(organization_id:uuid.UUID, db: Session, dept_in: Departmen
         # asyncio.create_task(manager.broadcast(str(organization_id), message))
 
         return department
+    except IntegrityError as e:
+        db.rollback()
+        # inspect which constraint failed
+        msg = str(e.orig).lower()
+        if "uq_department_name_per_org" in msg:
+            raise HTTPException(400, f"Department “{dept_in.name}” already exists.")
+        if "uq_hod_per_org" in msg:
+            raise HTTPException(400, "That staff[HoD] is already assigned to another Department.")
+        # fallback
+        raise HTTPException(400, "Could not create department.\n", msg)
+
     except Exception as e:
         print("\n\nerror creating department: ",e)
         raise HTTPException(status_code=500, detail=f"error occurred while creating department '{dept_in.name}':\n {str(e)}")
