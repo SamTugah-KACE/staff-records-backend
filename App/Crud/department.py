@@ -18,14 +18,14 @@ def create_department(organization_id:uuid.UUID, db: Session, dept_in: Departmen
         if not org:
             raise HTTPException(status_code=400, detail="Organization not found.")
 
-        # is_dept_exist = db.query(Department).filter(Department.name == dept_in.name.strip(), Organization.id == organization_id).first()
-        # if is_dept_exist:
-        #     raise HTTPException(status_code=400, detail=f"{dept_in.name} already exist.")
+        is_dept_exist = db.query(Department).filter(Department.name == dept_in.name.strip(), Organization.id == organization_id).first()
+        if is_dept_exist:
+            raise HTTPException(status_code=400, detail=f"{dept_in.name} already exist.")
         
-        # if dept_in.department_head_id:
-        #     is_hod_already_assigned = db.query(Department).filter(Department.department_head_id == dept_in.department_head_id, Organization.id == organization_id).first()
-        #     if is_hod_already_assigned:
-        #         raise HTTPException(status_code=400, detail="Staff[HoD] already assigned to another Department.")
+        if dept_in.department_head_id:
+            is_hod_already_assigned = db.query(Department).filter(Department.department_head_id == dept_in.department_head_id, Organization.id == organization_id).first()
+            if is_hod_already_assigned:
+                raise HTTPException(status_code=400, detail="Staff[HoD] already assigned to another Department.")
         
         
         
