@@ -68,11 +68,11 @@ file_storage_crud = CRUDBase(FileStorage, AuditLog)
 
 
 @router.get(
-    "/staff",
+    "/enlist/staff",
     response_model=List[StaffOption],
     summary="List all staff in your org (excluding yourself)",
 )
-def list_staff(
+def enlist_staff(
     organization_id: UUID = Query(..., description="Your tenant’s org ID"),
     skip: int = Query(0, ge=0, description="How many records to skip"),
     limit: int = Query(100, ge=1, le=1000, description="Max records to return"),
