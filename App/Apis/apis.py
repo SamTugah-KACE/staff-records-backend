@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List, Dict, Union
 from uuid import UUID
+from Apis.summary import _build_summary_payload
 from Utils.util import get_organization_acronym
 from Service.email_service import EmailService, get_email_template
 from Utils.security import Security
@@ -119,10 +120,10 @@ def create_department_endpoint(org_id: uuid.UUID, dept_in: DepartmentCreate, db:
     """
     Create a new department for the given organization.
     """
-    org = db.query(Organization).filter(Organization.id == org_id).first()
-    if not org:
-        raise HTTPException(status_code=404, detail="Organization not found")
-    department = create_department(db, dept_in)
+    # org = db.query(Organization).filter(Organization.id == org_id).first()
+    # if not org:
+    #     raise HTTPException(status_code=404, detail="Organization not found")
+    department = create_department(org_id, db, dept_in)
     return department
 
 @router.get("/organizations/{org_id}/departments", response_model=list[DepartmentOut],  tags=["Organizational Departments"])
@@ -156,7 +157,7 @@ def update_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, dept_in: D
     return updated_department
 
 @router.delete("/organizations/{org_id}/departments/{dept_id}",  tags=["Organizational Departments"])
-def delete_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, db: Session = Depends(get_db)):
+async def delete_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, db: Session = Depends(get_db)):
     """
     Delete a department from the given organization.
     """
@@ -164,6 +165,13 @@ def delete_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, db: Sessio
     if not department or department.organization_id != org_id:
         raise HTTPException(status_code=404, detail="Department not found")
     delete_department(db, department)
+    # build fresh summary  and broadcast to the request organization
+    schema_obj = await _build_summary_payload(db, org_id)
+    payload = jsonable_encoder(schema_obj)  # <-- turns Pydantic schema into plain dict
+    message = json.dumps({"type": "update", "payload": payload})
+
+    # Fire-and-forget so HTTP response isn't delayed
+    asyncio.create_task(manager.broadcast(str(org_id), message))
     return {"detail": "Department deleted successfully"}
 
 

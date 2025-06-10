@@ -1,23 +1,28 @@
+import asyncio
+import json
 from fastapi import HTTPException
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
+from Apis.summary import _build_summary_payload
 from Models.Tenants.organization import Organization, Branch
 from Models.models import Department
-from Schemas.schemas import DepartmentCreate, DepartmentUpdate
+from Schemas.schemas import DepartmentCreate, DepartmentUpdate, DepartmentOut
 import uuid
+from notification.socket import manager
 
-def create_department(db: Session, dept_in: DepartmentCreate) -> Department:
+def create_department(organization_id:uuid.UUID, db: Session, dept_in: DepartmentCreate) -> Department:
     try:
 
-        org = db.query(Organization).filter(Organization.id == dept_in.organization_id).first()
+        org = db.query(Organization).filter(Organization.id == organization_id).first()
         if not org:
             raise HTTPException(status_code=400, detail="Organization not found.")
 
-        is_dept_exist = db.query(Department).filter(Department.name == dept_in.name.strip(), Organization.id == dept_in.organization_id).first()
+        is_dept_exist = db.query(Department).filter(Department.name == dept_in.name.strip(), Organization.id == organization_id).first()
         if is_dept_exist:
             raise HTTPException(status_code=400, detail=f"{dept_in.name} already exist.")
         
         if dept_in.department_head_id:
-            is_hod_already_assigned = db.query(Department).filter(Department.department_head_id == dept_in.department_head_id, Organization.id == dept_in.organization_id).first()
+            is_hod_already_assigned = db.query(Department).filter(Department.department_head_id == dept_in.department_head_id, Organization.id == organization_id).first()
             if is_hod_already_assigned:
                 raise HTTPException(status_code=400, detail="Staff[HoD] already assigned to another Department.")
         
@@ -32,10 +37,20 @@ def create_department(db: Session, dept_in: DepartmentCreate) -> Department:
                 raise HTTPException(status_code=400, detail="Department already exist within same same Branch.")
             
 
-        department = Department(**dept_in.dict(), organization_id=dept_in.organization_id)
+        # Create the department
+        department = Department(**dept_in.dict(), organization_id=organization_id)
         db.add(department)
         db.commit()
         db.refresh(department)
+
+        # build fresh summary  and broadcast to the request organization
+        # schema_obj = await _build_summary_payload(db, organization_id)
+        # payload = jsonable_encoder(schema_obj)  # <-- turns Pydantic schema into plain dict
+        # message = json.dumps({"type": "update", "payload": payload})
+
+        # # Fire-and-forget so HTTP response isn't delayed
+        # asyncio.create_task(manager.broadcast(str(organization_id), message))
+
         return department
     except Exception as e:
         print("\n\nerror creating department: ",e)

@@ -12,6 +12,7 @@ from Apis.default import create_default
 from Apis.routers import api
 from Apis.deps_ws import get_current_user_ws
 from Apis.summary import _build_summary_payload
+from Apis.summary_listeners import register_summary_listeners
 from Models.Tenants.organization import Organization
 from Service.data_input_handlers import autodiscover_handlers
 from Models.models import Dashboard, User, Employee, EmployeeDataInput
@@ -526,6 +527,9 @@ async def on_startup():
         
         # Start the APScheduler job for daily checks.
         schedule_daily_checks()
+
+        register_summary_listeners()
+        print("Application startup tasks completed successfully.")
 
         print("Application startup tasks completed.")
 

@@ -221,7 +221,8 @@ class DepartmentBase(BaseModel):
     branch_id: Optional[UUID] = None
 
 class DepartmentCreate(DepartmentBase):
-    organization_id: UUID
+    pass
+    # organization_id: UUID
 
 class DepartmentUpdate(BaseModel):
     name: Optional[str] = None
