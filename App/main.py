@@ -297,8 +297,9 @@ def extract_attachments(data: dict) -> list[dict]:
 @app.websocket("/ws/employee-inputs")
 async def ws_employee_inputs(
     websocket: WebSocket,
-    token: str = Query(...),
     organization_id: str = Query(...),
+    token: str = Query(...),
+    
     db: Session = Depends(get_db),
 ):
     # 1) Authenticate BEFORE accept()
