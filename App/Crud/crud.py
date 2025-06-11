@@ -256,7 +256,7 @@ class CRUDBase:
         # obj_data["access_url"] = f"http://localhost:8000/{slug}"
 
         obj_data["access_url"] = f"https://gi-kace-solutions.onrender.com/{slug}/signin"
-
+ 
         existing_org = db.query(Organization).filter(Organization.name == obj_data["name"].strip()).first()
         if existing_org:
             raise HTTPException(
