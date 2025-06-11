@@ -255,8 +255,8 @@ class CRUDBase:
         slug = f"{ab}-{Security.generate_random_char(8)}"
         # obj_data["access_url"] = f"http://localhost:8000/{slug}"
 
-        obj_data["access_url"] = f"https://gi-kace-solutions.onrender.com/{slug}/signin"
- 
+        obj_data["access_url"] = f"https://gi-kace-solutions.onrender.com/{slug}"
+
         existing_org = db.query(Organization).filter(Organization.name == obj_data["name"].strip()).first()
         if existing_org:
             raise HTTPException(
@@ -413,7 +413,7 @@ class CRUDBase:
                         "email": employee_data["email"],
                         "org_name": obj_data["name"],
                     }
-                    signin_page = obj_data["access_url"]
+                    signin_page = obj_data["access_url"]+"/signin"
                     print("signin page: ", signin_page)
 
                     logos = obj_data["logos"]
