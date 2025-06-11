@@ -408,15 +408,21 @@ async def ws_employee_inputs(
     organization_id: str = Query(...),
     db: Session = Depends(get_db),
 ):
-    # 1) Authenticate + authorize
-    user = await global_security.get_current_user_ws(token, db)
+    # 1) Try to authenticate; if expired/invalid, this will raise WebSocketDisconnect
+    try:
+        user = await global_security.get_current_user_ws(token, db)
+        ensure_hr_dashboard_ws(user)
+    except WebSocketDisconnect:
+        # Close with 1008 so client knows it’s an auth issue
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
 
-    print("user role_id in websocket main:: ", user.role_id)
-    print("user organization in websocket main:: ", user.organization_id)
-    ensure_hr_dashboard_ws(user)
+    # 2) Tenant check
     if str(user.organization_id) != organization_id:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
+    
+   
 
     # 2) Accept connection
     # await manager.connect(organization_id, websocket)
