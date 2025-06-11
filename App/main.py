@@ -294,135 +294,49 @@ def extract_attachments(data: dict) -> list[dict]:
     return attachments
 
 
-@app.websocket("/ws/employee-inputs")
-async def ws_employee_inputs(
-    websocket: WebSocket,
-    organization_id: str = Query(...),
-    token: str = Query(...),
-    
-    db: Session = Depends(get_db),
-):
-    # 1) Authenticate BEFORE accept()
-    try:
-        print("WebSocket connection attempt with token:", token)
-        if not token:
-            print("No token provided in WebSocket connection attempt")
-            # invalid/missing token → reject handshake
-            # missing token → reject handshake
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            return
-        user = await global_security.get_current_user_ws(token, db)
-        print("user role_id in websocket main:: ", user.role_id)
-        print("user organization in websocket main:: ", user.organization_id)
-        print("user object in websocket main:: ", user)
-        ensure_hr_dashboard_ws(user)
-    except Exception:
-        # invalid/missing token → reject handshake
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-
-    # 2) Tenant check + HR permission
-    if str(user.organization_id) != organization_id:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-    # try:
-    #     ensure_hr_dashboard_ws(user)
-    # except Exception:
-    #     await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-    #     return
-
-    # 3) All checks pass → accept and register
-    await websocket.accept()
-    await manager.register(organization_id, str(user.id), websocket)
-
-    try:
-        # 4) Build and broadcast initial payload
-        rows = (
-            db.query(EmployeeDataInput)
-              .options(joinedload(EmployeeDataInput.employee))
-              .join(Employee, Employee.id == EmployeeDataInput.employee_id)
-              .filter(EmployeeDataInput.organization_id == organization_id)
-              .all()
-        )
-
-        # batch-fetch users+roles
-        emails = {row.employee.email for row in rows}
-        users = (
-            db.query(User)
-              .options(joinedload(User.role))
-              .filter(
-                  and_(
-                      User.organization_id == organization_id,
-                      User.email.in_(emails)
-                  )
-              )
-              .all()
-        )
-        user_map = {u.email: u for u in users}
-
-        payload = []
-        for row in rows:
-            emp = row.employee
-            full_name = " ".join(filter(None, [emp.title if emp.title != "Other" else ''.strip(), emp.first_name, emp.middle_name if emp.middle_name else ''.strip(), emp.last_name]))
-            role_name = (user_map.get(emp.email).role.name 
-                         if emp.email in user_map and user_map[emp.email].role 
-                         else "N/A")
-            attachments = extract_attachments(row.data or {})
-            payload.append({
-                "id":          str(row.id),
-                "AccountName": full_name,
-                "Role":        role_name,
-                "Data":        row.data,
-                "Attachments": attachments,
-                "Actions":     "Pending",
-            })
-
-        # Broadcast to this org
-        await manager.broadcast(organization_id, json.dumps({
-            "type":    "initial",
-            "payload": payload
-        }))
-
-        # 5) Keep-alive loop
-        while True:
-            # You can either expect a ping from the client...
-            _ = await websocket.receive_text()
-            # ...or you could do await asyncio.sleep(30) + websocket.send_text("ping")
-            continue
-
-    except WebSocketDisconnect:
-        # client disconnected
-        await manager.unregister(organization_id, str(user.id), websocket)
-
-    except Exception:
-        # unexpected error
-        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
-        await manager.unregister(organization_id, str(user.id), websocket)
-
-#existing working  one below
-
 # @app.websocket("/ws/employee-inputs")
 # async def ws_employee_inputs(
 #     websocket: WebSocket,
-#     token: str = Query(...),
 #     organization_id: str = Query(...),
+#     token: str = Query(...),
+    
 #     db: Session = Depends(get_db),
 # ):
-#     # 1) Authenticate + authorize
-#     user = await global_security.get_current_user_ws(token, db)
-
-#     print("user role_id in websocket main:: ", user.role_id)
-#     print("user organization in websocket main:: ", user.organization_id)
-#     ensure_hr_dashboard_ws(user)
-#     if str(user.organization_id) != organization_id:
+#     # 1) Authenticate BEFORE accept()
+#     try:
+#         print("WebSocket connection attempt with token:", token)
+#         if not token:
+#             print("No token provided in WebSocket connection attempt")
+#             # invalid/missing token → reject handshake
+#             # missing token → reject handshake
+#             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+#             return
+#         user = await global_security.get_current_user_ws(token, db)
+#         print("user role_id in websocket main:: ", user.role_id)
+#         print("user organization in websocket main:: ", user.organization_id)
+#         print("user object in websocket main:: ", user)
+#         ensure_hr_dashboard_ws(user)
+#     except Exception:
+#         # invalid/missing token → reject handshake
 #         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
 #         return
 
-#     # 2) Accept connection
-#     await manager.connect(organization_id, websocket)
+#     # 2) Tenant check + HR permission
+#     if str(user.organization_id) != organization_id:
+#         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+#         return
+#     # try:
+#     #     ensure_hr_dashboard_ws(user)
+#     # except Exception:
+#     #     await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+#     #     return
+
+#     # 3) All checks pass → accept and register
+#     await websocket.accept()
+#     await manager.register(organization_id, str(user.id), websocket)
 
 #     try:
-#         # 3) Fetch inputs + employee in one go
+#         # 4) Build and broadcast initial payload
 #         rows = (
 #             db.query(EmployeeDataInput)
 #               .options(joinedload(EmployeeDataInput.employee))
@@ -431,7 +345,7 @@ async def ws_employee_inputs(
 #               .all()
 #         )
 
-#         # 4) Batch‐fetch related Users + roles
+#         # batch-fetch users+roles
 #         emails = {row.employee.email for row in rows}
 #         users = (
 #             db.query(User)
@@ -439,46 +353,136 @@ async def ws_employee_inputs(
 #               .filter(
 #                   and_(
 #                       User.organization_id == organization_id,
-#                       User.email.in_(list(emails))
+#                       User.email.in_(emails)
 #                   )
 #               )
 #               .all()
 #         )
 #         user_map = {u.email: u for u in users}
 
-#         # 5) Build and broadcast payload
 #         payload = []
 #         for row in rows:
-#             print("employeeDataInput rowID: ", row.id)
-#             print("row.data: ", row.data)
 #             emp = row.employee
-#             full_name = " ".join(filter(None, [emp.first_name, emp.middle_name, emp.last_name]))
-#             user_rec  = user_map.get(emp.email)
-#             role_name = user_rec.role.name if user_rec and user_rec.role else "N/A"
+#             full_name = " ".join(filter(None, [emp.title if emp.title != "Other" else ''.strip(), emp.first_name, emp.middle_name if emp.middle_name else ''.strip(), emp.last_name]))
+#             role_name = (user_map.get(emp.email).role.name 
+#                          if emp.email in user_map and user_map[emp.email].role 
+#                          else "N/A")
 #             attachments = extract_attachments(row.data or {})
-
 #             payload.append({
-#                 "id": str(row.id),
-#                 "Account Name": full_name,
-#                 "Role":         role_name,
-#                 "Data": row.data,
-#                 "Issues":       "Request Approval",
-#                 "Attachments":  attachments,
-#                 "Actions":      "Pending"
+#                 "id":          str(row.id),
+#                 "AccountName": full_name,
+#                 "Role":        role_name,
+#                 "Data":        row.data,
+#                 "Attachments": attachments,
+#                 "Actions":     "Pending",
 #             })
 
-#         await manager.broadcast(organization_id, json.dumps(payload))
+#         # Broadcast to this org
+#         await manager.broadcast(organization_id, json.dumps({
+#             "type":    "initial",
+#             "payload": payload
+#         }))
 
-#         # 6) Keep-alive ping loop
+#         # 5) Keep-alive loop
 #         while True:
-#             await websocket.receive_text()
+#             # You can either expect a ping from the client...
+#             _ = await websocket.receive_text()
+#             # ...or you could do await asyncio.sleep(30) + websocket.send_text("ping")
+#             continue
 
 #     except WebSocketDisconnect:
-#         manager.disconnect(organization_id, websocket)
+#         # client disconnected
+#         await manager.unregister(organization_id, str(user.id), websocket)
 
 #     except Exception:
-#         import logging; logging.exception("Unexpected WS error")
+#         # unexpected error
 #         await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+#         await manager.unregister(organization_id, str(user.id), websocket)
+
+#existing working  one below
+
+@app.websocket("/ws/employee-inputs")
+async def ws_employee_inputs(
+    websocket: WebSocket,
+    token: str = Query(...),
+    organization_id: str = Query(...),
+    db: Session = Depends(get_db),
+):
+    # 1) Authenticate + authorize
+    user = await global_security.get_current_user_ws(token, db)
+
+    print("user role_id in websocket main:: ", user.role_id)
+    print("user organization in websocket main:: ", user.organization_id)
+    ensure_hr_dashboard_ws(user)
+    if str(user.organization_id) != organization_id:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    # 2) Accept connection
+    # await manager.connect(organization_id, websocket)
+    await websocket.accept()
+    await manager.register(organization_id, str(user.id), websocket)
+
+    try:
+        # 3) Fetch inputs + employee in one go
+        rows = (
+            db.query(EmployeeDataInput)
+              .options(joinedload(EmployeeDataInput.employee))
+              .join(Employee, Employee.id == EmployeeDataInput.employee_id)
+              .filter(EmployeeDataInput.organization_id == organization_id)
+              .all()
+        )
+
+        # 4) Batch‐fetch related Users + roles
+        emails = {row.employee.email for row in rows}
+        users = (
+            db.query(User)
+              .options(joinedload(User.role))
+              .filter(
+                  and_(
+                      User.organization_id == organization_id,
+                      User.email.in_(list(emails))
+                  )
+              )
+              .all()
+        )
+        user_map = {u.email: u for u in users}
+
+        # 5) Build and broadcast payload
+        payload = []
+        for row in rows:
+            print("employeeDataInput rowID: ", row.id)
+            print("row.data: ", row.data)
+            emp = row.employee
+            full_name = " ".join(filter(None, [emp.first_name, emp.middle_name, emp.last_name]))
+            user_rec  = user_map.get(emp.email)
+            role_name = user_rec.role.name if user_rec and user_rec.role else "N/A"
+            attachments = extract_attachments(row.data or {})
+
+            payload.append({
+                "id": str(row.id),
+                "Account Name": full_name,
+                "Role":         role_name,
+                "Data": row.data,
+                "Issues":       "Request Approval",
+                "Attachments":  attachments,
+                "Actions":      "Pending"
+            })
+
+        await manager.broadcast(organization_id, json.dumps(payload))
+
+        # 6) Keep-alive ping loop
+        while True:
+            await websocket.receive_text()
+
+    except WebSocketDisconnect:
+        # manager.disconnect(organization_id, websocket)
+        await manager.unregister(organization_id, str(user.id), websocket)
+
+    except Exception:
+        import logging; logging.exception("Unexpected WS error")
+        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+        await manager.unregister(organization_id, str(user.id), websocket)
 
 
 
