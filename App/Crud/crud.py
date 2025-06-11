@@ -413,7 +413,7 @@ class CRUDBase:
                         "email": employee_data["email"],
                         "org_name": obj_data["name"],
                     }
-                    signin_page = obj_data["access_url"]+"/signin"
+                    signin_page = obj_data["access_url"]
                     print("signin page: ", signin_page)
 
                     logos = obj_data["logos"]
