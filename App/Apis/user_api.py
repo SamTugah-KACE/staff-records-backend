@@ -295,7 +295,7 @@ async def bulk_insert_employee_data_api(
 
 from fastapi import Request
 
-@router.post("/create", response_model=CreateUserResponseSchema, status_code=status.HTTP_201_CREATED)
+@router.post("/create_", response_model=CreateUserResponseSchema, status_code=status.HTTP_201_CREATED)
 async def create_new_employee(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -364,6 +364,89 @@ async def create_new_employee(
         config= config,
     )
     return result
+
+
+
+@router.post(
+    "/create",
+    response_model=CreateUserResponseSchema,
+    status_code=status.HTTP_201_CREATED
+)
+async def create_new_employee(
+    # request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    config: BaseConfig = Depends(get_config),
+    storage: BaseStorage = Depends(get_storage_service),
+    sms_svc: BaseSMSService = Depends(get_sms_service),
+
+    # required fields pulled from the form
+    first_name: str         = Form(...),
+    last_name: str          = Form(...),
+    email: EmailStr         = Form(...),
+    role_id: UUID           = Form(...),
+    organization_id: UUID   = Form(...),
+    created_by: UUID | None = Form(None),
+    image_file: UploadFile  = File(None),
+
+    # catch-all for any other form fields
+    request: Request = Depends(Request)  # Use FastAPI's Request to access form data
+):
+    # Because we declared UploadFile above, FastAPI already parsed multipart.
+    # Now pull *all* form values (including any dynamic ones):
+    raw = await request.form()
+    data = { k: v for k, v in raw.multi_items() if k not in {"image_file"} }
+
+    # basic validation (Pydantic would do this too, if you moved to a Model)
+    for field in ("first_name", "last_name", "email", "role_id", "organization_id"):
+        if not data.get(field):
+            raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
+
+    # If you need JSON-encoded fields nested in form, e.g. contact_info="{...}"
+    ci = data.get("contact_info")
+    if isinstance(ci, str) and ci.startswith("{"):
+        try:
+            data["contact_info"] = json.loads(ci)
+        except json.JSONDecodeError:
+            data["contact_info"] = {}
+    else:
+        data["contact_info"] = {}
+
+    # remove any submit button values
+    data.pop("Submit Button", None)
+    data.pop("submit", None)
+
+    # image_file is an UploadFile instance (or None)
+    if image_file and not allowed_image_file(image_file.filename):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid file type. Allowed types: .jpg, .jpeg, .gif, .png"
+        )
+
+    # build your employee payload
+    employee_data = {
+        k: v for k, v in data.items()
+        if k not in {"role_id", "organization_id", "created_by", "image_file"}
+    }
+
+    # call your business logic
+    result = await userbase.create_user(
+        background_tasks=background_tasks,
+        db=db,
+        employee_data=employee_data,
+        role_id=role_id,
+        organization_id=organization_id,
+        image_file=image_file if image_file else None,
+        created_by=created_by,
+        storage=storage,
+        sms_svc=sms_svc,
+        config=config,
+    )
+    # Ensure that result contains strings for any UUID fields.
+    if "id" in result:
+        result["id"] = str(result["id"])
+    return result
+
 
 
 

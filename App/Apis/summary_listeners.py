@@ -17,6 +17,7 @@ def _after_change(mapper, connection, target):
     db: Session = connection.info.get("session")
     if db is None:
         # Fallback: new Session(bind=connection) — but better to attach Session into connection.info.
+        print("❌ No session found in connection.info, cannot broadcast summary")
         return
     org_id = str(target.organization_id)
     # Broadcast without blocking the current transaction
