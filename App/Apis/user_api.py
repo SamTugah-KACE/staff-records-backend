@@ -1,6 +1,7 @@
 from datetime import date
 import io
 import json
+import uuid
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, BackgroundTasks, Query, Form, status
 from pydantic import EmailStr
@@ -373,7 +374,7 @@ async def create_new_employee(
     status_code=status.HTTP_201_CREATED
 )
 async def create_new_employee(
-    # request: Request,
+    request: Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     config: BaseConfig = Depends(get_config),
@@ -384,13 +385,13 @@ async def create_new_employee(
     first_name: str         = Form(...),
     last_name: str          = Form(...),
     email: EmailStr         = Form(...),
-    role_id: UUID           = Form(...),
-    organization_id: UUID   = Form(...),
-    created_by: UUID | None = Form(None),
+    role_id: uuid.UUID           = Form(...),
+    organization_id: uuid.UUID   = Form(...),
+    created_by: uuid.UUID = Form(None),
     image_file: UploadFile  = File(None),
 
     # catch-all for any other form fields
-    request: Request = Depends(Request)  # Use FastAPI's Request to access form data
+    # request: Request = Depends(Request)  # Use FastAPI's Request to access form data
 ):
     # Because we declared UploadFile above, FastAPI already parsed multipart.
     # Now pull *all* form values (including any dynamic ones):
@@ -443,8 +444,8 @@ async def create_new_employee(
         config=config,
     )
     # Ensure that result contains strings for any UUID fields.
-    if "id" in result:
-        result["id"] = str(result["id"])
+    # if "id" in result:
+    #     result["id"] = str(result["id"])
     return result
 
 
