@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List, Dict, Union
 from uuid import UUID
-from Apis.summary import _build_summary_payload
+from Apis.summary import _build_summary_payload, push_summary_update
 from Utils.util import get_organization_acronym
 from Service.email_service import EmailService, get_email_template
 from Utils.security import Security
@@ -209,6 +209,7 @@ async def create(
 ):
     try:
         result =  create_role(db=db, obj_in=obj_in,user_id=created_by )
+        
         return result
     except HTTPException as e:
         raise e

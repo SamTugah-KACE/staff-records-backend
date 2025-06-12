@@ -2,6 +2,7 @@
 from typing import Optional
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
+from Apis.summary import push_summary_update
 from Models.Tenants.role import Role
 from uuid import UUID
 
@@ -38,6 +39,7 @@ def create_role(db: Session, obj_in, user_id: Optional[UUID] = None) -> Role:
         db.add(new_role)
         db.commit()
         db.refresh(new_role)
+        push_summary_update(db, role_data.get("organization_id"))
         return new_role
 
     except Exception as e:
@@ -90,7 +92,7 @@ def delete_role(db: Session, role_id: UUID) -> None:
     
     db.delete(role)
     db.commit()
-
+    push_summary_update(db, role.organization_id)
     return None
 
 def get_role_permissions(db: Session, role_id: UUID) -> list:

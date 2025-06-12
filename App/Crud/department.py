@@ -3,7 +3,7 @@ import json
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
-from Apis.summary import _build_summary_payload
+from Apis.summary import _build_summary_payload, push_summary_update
 from Models.Tenants.organization import Organization, Branch
 from Models.models import Department
 from Schemas.schemas import DepartmentCreate, DepartmentUpdate, DepartmentOut
@@ -51,7 +51,7 @@ def create_department(organization_id:uuid.UUID, db: Session, dept_in: Departmen
 
         # # Fire-and-forget so HTTP response isn't delayed
         # asyncio.create_task(manager.broadcast(str(organization_id), message))
-
+        push_summary_update(db, organization_id)
         return department
     except IntegrityError as e:
         db.rollback()
@@ -98,3 +98,4 @@ def update_department(db: Session, department: Department, dept_in: DepartmentUp
 def delete_department(db: Session, department: Department):
     db.delete(department)
     db.commit()
+    push_summary_update(db, department.organization_id)

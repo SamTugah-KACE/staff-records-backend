@@ -12,6 +12,7 @@ import io
 from google.cloud import storage
 import logging
 from sqlalchemy.sql import and_, or_
+from Apis.summary import push_summary_update
 from Models.Tenants.organization import Organization
 from Models.Tenants.role import Role
 from Models.models import Employee, User
@@ -415,6 +416,8 @@ class CRUDBase:
 
             # Audit the creation action
             self.audit_action(db, "create", self.model.__tablename__, new_employee.id, user_id)
+
+            push_summary_update(db, obj_in.organization_id)
             return new_employee
         
 
@@ -513,7 +516,7 @@ class CRUDBase:
 
             # Audit the creation action
             self.audit_action(db, "create", self.model.__tablename__, db_obj.id, user_id)
-
+            push_summary_update(db, main_obj_data.get("organization_id"))
             return db_obj
         except IntegrityError as e:
             db.rollback()
@@ -792,6 +795,7 @@ class CRUDBase:
             # --- Delete the Object ---
             db.delete(obj)
             db.commit()
+            push_summary_update(db, obj.id)
             self.audit_action(db, "delete", self.model.__tablename__, obj.id, user_id)
             return {"message": "Record deleted successfully."}
 
