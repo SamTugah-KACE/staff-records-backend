@@ -64,11 +64,11 @@ def push_summary_update(db: Session, org_id: UUID):
       # … all your other counts …
     }
     # broadcast to every HR summary socket in that org
-    manager.broadcast_json(str(org_id), {"type":"update", "payload": {"counts": counts}})
-    # manager.broadcast(
-    #   str(org_id),
-    #   json.dumps({"type":"update", "payload": {"counts": counts}})
-    # )
+    # manager.broadcast_json(str(org_id), {"type":"update", "payload": {"counts": counts}})
+    manager.broadcast(
+      str(org_id),
+      json.dumps({"type":"update", "payload": {"counts": counts}})
+    )
 
 
 async def _build_summary_payload(db: Session, org_id: UUID):

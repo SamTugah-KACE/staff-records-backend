@@ -63,7 +63,10 @@ async def websocket_summary(
 
         # 5) Build & send initial summary
         schema_obj = await _build_summary_payload(db, org_uuid)
-        payload = jsonable_encoder(schema_obj)  # <-- turns Pydantic schema into plain dict
+        print("\n\nschema_obj:: ", schema_obj)
+        # payload = jsonable_encoder(schema_obj)  # <-- turns Pydantic schema into plain dict
+        # print("\n\njsonable thing")
+        payload = schema_obj
         message = {"type": "initial", "payload": payload}
         await websocket.send_json(message)
         print("✅ sent initial payload")
