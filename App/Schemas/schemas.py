@@ -449,6 +449,14 @@ class EmployeeSchema(BaseSchema):
         if isinstance(v, str) and v.strip() == "{}":
             return {}
         return v
+    
+    @field_validator("contact_info", mode="before")
+    def wrap_non_dict(cls, v):
+        # already a dict (or None)? leave it
+        if v is None or isinstance(v, dict):
+            return v
+        # otherwise wrap whatever it is under a generic key
+        return {"value": v}
 
     # Validator for custom_data: if the incoming value is the string "{}" convert it to {}
     @field_validator("custom_data", mode="before")
@@ -456,6 +464,12 @@ class EmployeeSchema(BaseSchema):
         if isinstance(v, str) and v.strip() == "{}":
             return {}
         return v
+    
+    @field_validator("custom_data", mode="before")
+    def wrap_non_dict_custom(cls, v):
+        if v is None or isinstance(v, dict):
+            return v
+        return {"value": v}
 
 
     class Config:
@@ -685,7 +699,8 @@ class EmployeeDataInputRead(BaseModel):
 
     class Config:
         from_attributes = True
-        allow_population_by_field_name = True
+        # allow_population_by_field_name = True
+        validate_by_name = True
 
 
 
