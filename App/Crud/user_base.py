@@ -1852,7 +1852,7 @@ class UserCRUD:
 
         # Step 18: Send email with login credentials.
         email_service = EmailService()
-        email_body = get_email_template(user_name, password, org.access_url, org.name, logo)
+        email_body = get_email_template(user_name, password, org.access_url+"/signin", org.name, logo)
         await email_service.send_email(background_tasks, recipients=[email], subject="Account Credentials", html_body=email_body)
 
          # 18. **Send SMS** via injected sms_svc

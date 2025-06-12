@@ -431,51 +431,51 @@ async def ws_employee_inputs(
 
     try:
         # 3) Fetch inputs + employee in one go
-        rows = (
-            db.query(EmployeeDataInput)
-              .options(joinedload(EmployeeDataInput.employee))
-              .join(Employee, Employee.id == EmployeeDataInput.employee_id)
-              .filter(EmployeeDataInput.organization_id == organization_id)
-              .all()
-        )
+        # rows = (
+        #     db.query(EmployeeDataInput)
+        #       .options(joinedload(EmployeeDataInput.employee))
+        #       .join(Employee, Employee.id == EmployeeDataInput.employee_id)
+        #       .filter(EmployeeDataInput.organization_id == organization_id)
+        #       .all()
+        # )
 
-        # 4) Batch‐fetch related Users + roles
-        emails = {row.employee.email for row in rows}
-        users = (
-            db.query(User)
-              .options(joinedload(User.role))
-              .filter(
-                  and_(
-                      User.organization_id == organization_id,
-                      User.email.in_(list(emails))
-                  )
-              )
-              .all()
-        )
-        user_map = {u.email: u for u in users}
+        # # 4) Batch‐fetch related Users + roles
+        # emails = {row.employee.email for row in rows}
+        # users = (
+        #     db.query(User)
+        #       .options(joinedload(User.role))
+        #       .filter(
+        #           and_(
+        #               User.organization_id == organization_id,
+        #               User.email.in_(list(emails))
+        #           )
+        #       )
+        #       .all()
+        # )
+        # user_map = {u.email: u for u in users}
 
-        # 5) Build and broadcast payload
-        payload = []
-        for row in rows:
-            print("employeeDataInput rowID: ", row.id)
-            print("row.data: ", row.data)
-            emp = row.employee
-            full_name = " ".join(filter(None, [emp.first_name, emp.middle_name, emp.last_name]))
-            user_rec  = user_map.get(emp.email)
-            role_name = user_rec.role.name if user_rec and user_rec.role else "N/A"
-            attachments = extract_attachments(row.data or {})
+        # # 5) Build and broadcast payload
+        # payload = []
+        # for row in rows:
+        #     print("employeeDataInput rowID: ", row.id)
+        #     print("row.data: ", row.data)
+        #     emp = row.employee
+        #     full_name = " ".join(filter(None, [emp.first_name, emp.middle_name, emp.last_name]))
+        #     user_rec  = user_map.get(emp.email)
+        #     role_name = user_rec.role.name if user_rec and user_rec.role else "N/A"
+        #     attachments = extract_attachments(row.data or {})
 
-            payload.append({
-                "id": str(row.id),
-                "Account Name": full_name,
-                "Role":         role_name,
-                "Data": row.data,
-                "Issues":       "Request Approval",
-                "Attachments":  attachments,
-                "Actions":      "Pending"
-            })
+        #     payload.append({
+        #         "id": str(row.id),
+        #         "Account Name": full_name,
+        #         "Role":         role_name,
+        #         "Data": row.data,
+        #         "Issues":       "Request Approval",
+        #         "Attachments":  attachments,
+        #         "Actions":      "Pending"
+        #     })
 
-        await manager.broadcast(organization_id, json.dumps(payload))
+        # await manager.broadcast(organization_id, json.dumps(payload))
 
         # 6) Keep-alive ping loop
         while True:

@@ -7,7 +7,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from database.db_session import get_db
 from Models.models import User, Token 
-
+from notification.socket import manager
 
 
 
@@ -25,7 +25,32 @@ router = APIRouter()
 
 
 
-
+# --------------------------------------------------------------------
+# fetch tourGuide status from User model using organization_id and user_id
+# @router.get("/tour_guide_status", tags=["Auth"])
+# def get_tour_guide_status(
+#     organization_id: UUID,
+#     user_id: UUID,
+#     token: User = Depends(get_current_user),
+#     db: Session = Depends(get_db)
+# ):
+#     """
+#     Fetches the tour guide status for a given user in a specific organization.
+    
+#     Returns:
+#         A dictionary containing the tour guide status.
+#     """
+#     if not token or not token["user"]:
+#         raise HTTPException(status_code=401, detail="Unauthorized")
+#     user = db.query(User).filter(
+#         User.id == user_id,
+#         User.organization_id == organization_id
+#     ).first()
+    
+#     if not user:
+#         raise HTTPException(status_code=404, detail="User not found")
+    
+#     return {"tour_guide_status": user.tour_guide_status}
 
 
 
@@ -33,7 +58,7 @@ router = APIRouter()
 # LOGOUT ENDPOINT (Clears Token Data)
 # --------------------------------------------------------------------
 @router.post("/logout", tags=["Auth"])
-def logout_user(
+async def logout_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
     credentials: HTTPAuthorizationCredentials = Depends(security)
@@ -48,6 +73,9 @@ def logout_user(
         Token.user_id == current_user["id"],
         Token.organization_id == current_user["user"].organization_id).delete()
     db.commit()
+
+    # close all WS for this org/user
+    await manager.unregister_user(str(current_user.organization_id), str(current_user.id))
     return {"detail": "Logged out successfully"}
 
 

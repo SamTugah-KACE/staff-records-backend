@@ -5,7 +5,7 @@ from Models import models
 from passlib.context import CryptContext
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
-from jose import jwt, JWTError
+from jose import jwt, JWTError, ExpiredSignatureError
 from typing import Any, Dict, Optional
 import logging
 from .config import DevelopmentConfig
@@ -179,12 +179,21 @@ class Security:
             print("user_id: ", user_id)
             if not user_id:
                 raise JWTError()
+        except ExpiredSignatureError:
+            logger.warning("WebSocket token expired")
+            raise WebSocketDisconnect(code=status.WS_1008_POLICY_VIOLATION)
         except JWTError:
+            logger.error("WebSocket token invalid")
             raise WebSocketDisconnect(code=status.WS_1008_POLICY_VIOLATION)
 
         user = db.query(models.User).filter(models.User.id == user_id).first()
+        print("user: ", user)
+        # If user not found, raise WebSocketDisconnect with policy violation code
         if not user:
+            logger.error(f"WebSocket user not found: {user_id}")
             raise WebSocketDisconnect(code=status.WS_1008_POLICY_VIOLATION)
+        logger.debug(f"WebSocket authenticated user: {user.username} (ID: {user.id})")
+        # Return the user object if found
         return user
 
     # @staticmethod

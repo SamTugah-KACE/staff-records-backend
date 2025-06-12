@@ -1,4 +1,5 @@
 from datetime import datetime
+import json
 import re
 from typing import Optional, Set
 
@@ -9,6 +10,40 @@ from fastapi import Request, HTTPException
 from typing import Any, Dict, List, TypeVar, Union
 
 T = TypeVar("T")
+
+
+def extract_attachments(data: dict) -> list[dict]:
+    """
+    Only consider items whose key contains 'path' as attachments.
+    Values may be:
+      - dict of {filename: url}
+      - JSON‐encoded dict strings
+    """
+    attachments = []
+    for key, val in data.items():
+        if "path" not in key.lower():
+            continue
+
+        # Case 1: native dict
+        if isinstance(val, dict):
+            for fn, url in val.items():
+                attachments.append({"filename": fn, "url": url})
+            continue
+
+        # Case 2: JSON‐encoded dict string
+        if isinstance(val, str) and val.strip().startswith("{") and val.strip().endswith("}"):
+            try:
+                parsed = json.loads(val)
+                if isinstance(parsed, dict):
+                    for fn, url in parsed.items():
+                        attachments.append({"filename": fn, "url": url})
+                    continue
+            except json.JSONDecodeError:
+                pass
+
+    return attachments
+
+
 
 
 def extract_items(param: Union[Dict[Any, T], List[T], T]) -> T:

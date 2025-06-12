@@ -112,6 +112,15 @@ class ConnectionManager:
                 user_conns.remove(websocket)
                 if not user_conns:
                     del self.user_connections[key]
+    
+    async def unregister_user(self, organization_id: str, user_id: str):
+        """
+        Force-close ALL WebSockets for this (org, user).
+        """
+        conns = self.user_connections.get((organization_id, user_id), [])
+        for ws in conns[:]:
+            await ws.close(code=1001)  # normal closure
+            await self.unregister(organization_id, user_id, ws)
 
     async def connect(self, organization_id: str, websocket: WebSocket):
         await websocket.accept()

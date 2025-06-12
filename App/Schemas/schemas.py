@@ -670,6 +670,24 @@ class EmployeeDataInput(EmployeeDataInputInDBBase):
     pass
 
 
+class Attachment(BaseModel):
+    filename: str
+    url: str
+
+class EmployeeDataInputRead(BaseModel):
+    id: UUID
+    account_name: str   = Field(..., alias="Account Name")
+    role:         str
+    data:         Dict[str, Any]
+    attachments:  List[Attachment]    = Field(..., alias="Attachments")
+    issues:       str                 = Field(..., alias="Issues")
+    actions:      str                 = Field(..., alias="Actions")
+
+    class Config:
+        from_attributes = True
+        allow_population_by_field_name = True
+
+
 
 # File Storage Schema
 class FileStorageSchema(BaseSchema):

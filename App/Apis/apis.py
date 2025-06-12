@@ -126,6 +126,8 @@ def create_department_endpoint(org_id: uuid.UUID, dept_in: DepartmentCreate, db:
     department = create_department(org_id, db, dept_in)
     return department
 
+
+
 @router.get("/organizations/{org_id}/departments", response_model=list[DepartmentOut],  tags=["Organizational Departments"])
 def list_departments_endpoint(org_id: uuid.UUID, db: Session = Depends(get_db), skip: int = 0,
     limit: int = 10):

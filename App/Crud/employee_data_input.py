@@ -24,13 +24,16 @@ from Models import models
 import logging
 from sqlalchemy.dialects.postgresql import JSONB
 from pprint import pformat
-
+from notification.socket import manager
+from Utils.util import extract_attachments
 logger = logging.getLogger(__name__)
 
 class RequestStatus(str, Enum):
     Pending = "Pending"
     Approved = "Approved"
     Rejected = "Rejected"
+
+
 
     
 
@@ -364,21 +367,48 @@ async def create_or_update_data_input(
         db.add(existing)
         db.commit()
         db.refresh(existing)
-        return existing
+        record = existing
+        event_type = "updated_input"
+        # return existing
+    else:
+        # create new record
+        # 5️⃣ Otherwise create new
+        new_input = models.EmployeeDataInput(
+            employee_id    = obj_in.employee_id,
+            organization_id= obj_in.organization_id if isinstance(obj_in.organization_id, UUID) else org_uuid,
+            data_type      = obj_in.data_type,
+            request_type   = obj_in.request_type,
+            status         = RequestStatus.Pending.value,
+            data           = column_data
+        )
+        db.add(new_input)
+        db.commit()
+        db.refresh(new_input)
+        record = new_input
+        event_type = "new_input"
 
-    # 5️⃣ Otherwise create new
-    new_input = models.EmployeeDataInput(
-        employee_id    = obj_in.employee_id,
-        organization_id= obj_in.organization_id if isinstance(obj_in.organization_id, UUID) else org_uuid,
-        data_type      = obj_in.data_type,
-        request_type   = obj_in.request_type,
-        status         = RequestStatus.Pending.value,
-        data           = column_data
+    
+    # Build the minimal payload
+    out = {
+        "id":           str(record.id),
+        "Account Name":  record.employee.full_name,
+        "Role":         record.employee.role.name,
+        "Data":         record.data,
+        "Attachments":  extract_attachments(record.data or {}),
+        "Issues":       "Request Approval",
+        "Actions":      "Pending",
+    }
+
+    # Broadcast immediately to this org
+    await manager.broadcast(
+      str(record.organization_id),
+      json.dumps({ "type": event_type, "payload": out })
     )
-    db.add(new_input)
-    db.commit()
-    db.refresh(new_input)
-    return new_input
+    # return new_input
+    return record
+        
+
+    
 
 
 
