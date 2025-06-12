@@ -92,6 +92,8 @@ async def create_input(
 #     )
 
 
+
+
 @router.get(
     "/",
     response_model=List[schemas.EmployeeDataInput]
@@ -102,10 +104,11 @@ def list_data_inputs(
 ):
     # Return all change‐requests for that employee
     return employee_data_input.get_data_inputs_by_employee_order_by_date(db, employee_id)
+    # return employee_data_input.get_data_inputs_by_employee(db, employee_id)
 
 
 @router.get(
-    "/",
+    "/org/",
     response_model=List[schemas.EmployeeDataInputRead],
     summary="List all pending inputs for this organization (HR only)"
 )
