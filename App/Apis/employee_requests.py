@@ -93,7 +93,7 @@ async def create_input(
 
 
 @router.get(
-    "/by-employee-id",
+    "/{employee_id}",
     response_model=List[schemas.EmployeeDataInput]
 )
 def list_data_inputs(
