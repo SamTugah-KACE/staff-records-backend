@@ -117,10 +117,19 @@ class ConnectionManager:
         """
         Force-close ALL WebSockets for this (org, user).
         """
-        conns = self.user_connections.get((organization_id, user_id), [])
-        for ws in conns[:]:
-            await ws.close(code=1001)  # normal closure
+        key = (organization_id, user_id)
+        # snapshot the list so we can mutate the original safely
+        conns = list(self.user_connections.get(key, []))
+        for ws in conns:
+            # 1) remove it from our maps immediately
             await self.unregister(organization_id, user_id, ws)
+
+            # 2) then ask it to close — but guard against double-close
+            try:
+                await ws.close(code=1001)  # normal closure
+            except RuntimeError:
+                # already closed, ignore
+                pass
 
     async def connect(self, organization_id: str, websocket: WebSocket):
         await websocket.accept()
