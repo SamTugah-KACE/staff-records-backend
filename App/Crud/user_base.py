@@ -1731,6 +1731,9 @@ class UserCRUD:
         # Step 13: Create the Employee record.
         # IMPORTANT: Remove contact_info from base_employee_data to avoid duplicate keyword argument.
         base_contact = base_employee_data.pop("contact_info", {})
+        # Remove any existing key so we don’t pass it twice:
+        base_employee_data.pop("profile_image_path", None)
+        print("\n\nbase_employee_data: ", base_employee_data)
         employee_record = Employee(
             **base_employee_data,
             # contact_info=json.dumps(base_employee_data.get("contact_info", {})),
