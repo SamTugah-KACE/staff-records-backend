@@ -391,7 +391,7 @@ async def create_or_update_data_input(
 
     # user_obj =  db.query(User).filter(User.email == emp.email).first()
 
-    users = (
+    user_obj = (
             db.query(User)
               .options(joinedload(User.role))
               .filter(
@@ -402,11 +402,9 @@ async def create_or_update_data_input(
               ).first()
     )
 
-    user_map = {u.email: u for u in users}
+    
     full_name = " ".join(filter(None, [emp.title if emp.title != "Other" else ''.strip(), emp.first_name, emp.middle_name if emp.middle_name else ''.strip(), emp.last_name]))
-    role_name = (user_map.get(emp.email).role.name 
-                         if emp.email in user_map and user_map[emp.email].role 
-                         else "N/A")
+    role_name = user_obj.role.name if user_obj and user_obj.role else "N/A"
 
     
     # Build the minimal payload

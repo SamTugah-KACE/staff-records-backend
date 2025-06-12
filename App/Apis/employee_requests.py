@@ -111,7 +111,7 @@ def list_data_inputs(
 )
 async def list_data_inputs(
     organization_id: UUID = Query(..., description="Your org UUID"),
-    current_user: User   = Depends(get_current_user),   
+    current_user  = Depends(get_current_user),   
     db: Session = Depends(get_db),
 
 ):
