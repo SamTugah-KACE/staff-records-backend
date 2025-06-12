@@ -2,7 +2,7 @@ import asyncio
 import datetime
 import json
 from fastapi import APIRouter, WebSocketDisconnect, WebSocket
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 
 router = APIRouter()
@@ -173,6 +173,15 @@ class ConnectionManager:
                 await ws.send_text(message)
             except Exception:
                 # If sending fails, ignore; cleanup happens in disconnect.
+                pass
+    
+    async def broadcast_json(self, organization_id: str, obj: Any):
+        if organization_id not in self.active_connections:
+            return
+        for ws in list(self.active_connections[organization_id]):
+            try:
+                await ws.send_json(obj)
+            except:
                 pass
 
 manager = ConnectionManager()
