@@ -75,7 +75,7 @@ async def logout_user(
     db.commit()
 
     # close all WS for this org/user
-    await manager.unregister_user(str(current_user.organization_id), str(current_user.id))
+    await manager.unregister_user(str(current_user["user"].organization_id), str(current_user["id"]))
     return {"detail": "Logged out successfully"}
 
 

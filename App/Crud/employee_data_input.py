@@ -3,15 +3,15 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 import uuid
-from sqlalchemy import func, text, inspect, update
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, func, text, inspect, update
+from sqlalchemy.orm import Session, joinedload
 from fastapi import Depends, HTTPException, UploadFile
 import json
 from Service.storage_service import BaseStorage
 from Models.Tenants.organization import Organization
 from Service.sms_service import BaseSMSService
 from Utils.sms_utils import get_sms_service
-from Models.models import Employee, EmployeeDataInput, RequestStatus
+from Models.models import Employee, EmployeeDataInput, RequestStatus, User
 from Schemas.schemas import (
     EmployeeDataInputCreate,
     EmployeeDataInputUpdate,
@@ -386,13 +386,34 @@ async def create_or_update_data_input(
         db.refresh(new_input)
         record = new_input
         event_type = "new_input"
+    
+    emp = db.query(Employee).filter(Employee.id == obj_in.employee_id).first()
+
+    # user_obj =  db.query(User).filter(User.email == emp.email).first()
+
+    users = (
+            db.query(User)
+              .options(joinedload(User.role))
+              .filter(
+                  and_(
+                      User.organization_id == organization_id,
+                      User.email == emp.email
+                  )
+              ).first()
+    )
+
+    user_map = {u.email: u for u in users}
+    full_name = " ".join(filter(None, [emp.title if emp.title != "Other" else ''.strip(), emp.first_name, emp.middle_name if emp.middle_name else ''.strip(), emp.last_name]))
+    role_name = (user_map.get(emp.email).role.name 
+                         if emp.email in user_map and user_map[emp.email].role 
+                         else "N/A")
 
     
     # Build the minimal payload
     out = {
         "id":           str(record.id),
-        "Account Name":  record.employee.full_name,
-        "Role":         record.employee.role.name,
+        "Account Name":  full_name,
+        "Role":         role_name,
         "Data":         record.data,
         "Attachments":  extract_attachments(record.data or {}),
         "Issues":       "Request Approval",

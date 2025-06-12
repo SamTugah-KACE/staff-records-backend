@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status, UploadFile, File, Form
 from sqlalchemy import and_
 from sqlalchemy.orm import Session, joinedload
-from Crud.auth import ensure_hr_dashboard_ws
+from Crud.auth import ensure_hr_dashboard_ws, get_current_user
 from .deps_ws import get_current_user_ws
 from Models.models import Employee, EmployeeDataInput, User
 from Service.storage_service import BaseStorage
@@ -111,13 +111,19 @@ def list_data_inputs(
 )
 async def list_data_inputs(
     organization_id: UUID = Query(..., description="Your org UUID"),
-     token: str            = Query(..., description="Your JWT"),
+    current_user: User   = Depends(get_current_user),   
     db: Session = Depends(get_db),
 
 ):
    # 1) Authenticate & HR-permission
+    # 1) HR permission check
+   
+    user = current_user["user"]
+    print("getUser::  ", user)
     try:
-        user = await get_current_user_ws(token, db)
+        if user.organization_id != organization_id:
+            raise HTTPException(403, "Not your organization")
+        
         ensure_hr_dashboard_ws(user)
     except HTTPException as e:
         raise e
