@@ -172,16 +172,27 @@ async def list_data_inputs(
         role_name = user_rec.role.name if user_rec and user_rec.role else "N/A"
         attachments = extract_attachments(row.data or {})
 
+        # payload.append({
+        #     "id": str(row.id),
+        #     "Account Name": full_name,
+        #     "Role":         role_name,
+        #     "Data": row.data,
+        #     "Issues":       "Request Approval",
+        #     "Attachments":  attachments,
+        #     "Actions":      "Pending"
+        # })
+
         payload.append({
-            "id": str(row.id),
-            "Account Name": full_name,
-            "Role":         role_name,
-            "Data": row.data,
-            "Issues":       "Request Approval",
-            "Attachments":  attachments,
-            "Actions":      "Pending"
+        "id":           row.id,
+        "account_name": full_name,
+        "role":         role_name,
+        "data":         row.data,
+        "issues":       "Request Approval",
+        "attachments":  attachments,
+        "actions":      "Pending",
         })
     return payload
+
 
 
 @router.get(

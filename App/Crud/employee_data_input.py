@@ -410,12 +410,12 @@ async def create_or_update_data_input(
     # Build the minimal payload
     out = {
         "id":           str(record.id),
-        "Account Name":  full_name,
-        "Role":         role_name,
-        "Data":         record.data,
-        "Attachments":  extract_attachments(record.data or {}),
-        "Issues":       "Request Approval",
-        "Actions":      "Pending",
+        "account_name":  full_name,
+        "role":         role_name,
+        "data":         record.data,
+        "attachments":  extract_attachments(record.data or {}),
+        "issues":       "Request Approval",
+        "actions":      "Pending",
     }
 
     # Broadcast immediately to this org
