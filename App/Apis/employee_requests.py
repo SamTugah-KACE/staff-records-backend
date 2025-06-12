@@ -3,6 +3,7 @@ import json
 from typing import List
 from uuid import UUID
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status, UploadFile, File, Form
+from fastapi.responses import JSONResponse
 from sqlalchemy import and_
 from sqlalchemy.orm import Session, joinedload
 from Crud.auth import ensure_hr_dashboard_ws, get_current_user
@@ -183,7 +184,7 @@ async def list_data_inputs(
         # })
 
         payload.append({
-        "id":           row.id,
+        "id":           str(row.id),
         "account_name": full_name,
         "role":         role_name,
         "data":         row.data,
@@ -191,7 +192,8 @@ async def list_data_inputs(
         "attachments":  attachments,
         "actions":      "Pending",
         })
-    return payload
+    # return payload
+    return JSONResponse(content=payload)
 
 
 
