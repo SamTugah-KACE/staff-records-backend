@@ -62,19 +62,22 @@ async def websocket_summary(
         print("✅ organization loaded:", org.id)
 
         # 5) Build & send initial summary
-        schema_obj = await _build_summary_payload(db, org_uuid)
-        print("\n\nschema_obj:: ", schema_obj)
+        payload = await _build_summary_payload(db, org_uuid)
+        # print("\n\nschema_obj:: ", schema_obj)
         # payload = jsonable_encoder(schema_obj)  # <-- turns Pydantic schema into plain dict
         # print("\n\njsonable thing")
-        payload = schema_obj
+        # payload = schema_obj
         message = {"type": "initial", "payload": payload}
         await websocket.send_json(message)
         print("✅ sent initial payload")
 
         try:
             while True:
-                await asyncio.sleep(3600)
+                # await asyncio.sleep(3600)
+                await websocket.receive_text()
         except WebSocketDisconnect:
+            pass
+        finally:
             await manager.unregister(organization_id, user_id, websocket)
 
         # 6) Wait for “refresh”

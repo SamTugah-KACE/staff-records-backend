@@ -1,3 +1,4 @@
+import asyncio
 import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -13,63 +14,68 @@ from notification.socket import manager
 router = APIRouter(prefix="/organizations", tags=["Summary"])
 
 
-def push_summary_update(db: Session, org_id: UUID):
-     # Compute counts
-    branch_ct   = db.query(Branch).filter(Branch.organization_id == org_id).count()
-    dept_ct     = db.query(Department).filter(Department.organization_id == org_id).count()
-    rank_ct     = db.query(Rank).filter(Rank.organization_id == org_id).count()
-    role_ct     = db.query(Role).filter(Role.organization_id == org_id).count()
-    user_ct     = db.query(User).filter(User.organization_id == org_id).count()
-    emp_ct      = db.query(Employee).filter(Employee.organization_id == org_id).count()
-    policy_ct   = db.query(PromotionPolicy).filter(PromotionPolicy.organization_id == org_id).count()
-    tenancy_ct  = db.query(Tenancy).filter(Tenancy.organization_id == org_id).count()
+# def push_summary_update(db: Session, org_id: UUID):
+#      # Compute counts
+#     branch_ct   = db.query(Branch).filter(Branch.organization_id == org_id).count()
+#     dept_ct     = db.query(Department).filter(Department.organization_id == org_id).count()
+#     rank_ct     = db.query(Rank).filter(Rank.organization_id == org_id).count()
+#     role_ct     = db.query(Role).filter(Role.organization_id == org_id).count()
+#     user_ct     = db.query(User).filter(User.organization_id == org_id).count()
+#     emp_ct      = db.query(Employee).filter(Employee.organization_id == org_id).count()
+#     policy_ct   = db.query(PromotionPolicy).filter(PromotionPolicy.organization_id == org_id).count()
+#     tenancy_ct  = db.query(Tenancy).filter(Tenancy.organization_id == org_id).count()
     
-    bill_ct     = (
-        db.query(Bill)
-          .join(Tenancy, Bill.tenancy_id == Tenancy.id)
-            .filter(Tenancy.organization_id == org_id)
-            .count()
-    )
-    payment_ct  = (
-        db.query(Payment)
-          .join(Bill, Payment.bill_id == Bill.id)
-          .join(Tenancy, Bill.tenancy_id == Tenancy.id)
-            .filter(Tenancy.organization_id == org_id)
-            .count()
-    )
-    # counts = SummaryCounts(
-    #     branches=branch_ct,
-    #     departments=dept_ct,
-    #     ranks=rank_ct,
-    #     roles=role_ct,
-    #     users=user_ct,
-    #     employees=emp_ct,
-    #     promotion_policies=policy_ct,
-    #     tenancies=tenancy_ct,
-    #     bills=bill_ct,
-    #     payments=payment_ct
-    # )
-    counts = {
-      "branches":   branch_ct,
-      "departments":dept_ct,
-      "ranks": rank_ct,
-      "roles":role_ct,
-      "users": user_ct,
-      "employees": emp_ct,
-      "promotion_policies": policy_ct,
-      "tenancies": tenancy_ct,
-      "bills":bill_ct,
-      "payments": payment_ct 
+#     bill_ct     = (
+#         db.query(Bill)
+#           .join(Tenancy, Bill.tenancy_id == Tenancy.id)
+#             .filter(Tenancy.organization_id == org_id)
+#             .count()
+#     )
+#     payment_ct  = (
+#         db.query(Payment)
+#           .join(Bill, Payment.bill_id == Bill.id)
+#           .join(Tenancy, Bill.tenancy_id == Tenancy.id)
+#             .filter(Tenancy.organization_id == org_id)
+#             .count()
+#     )
+#     # counts = SummaryCounts(
+#     #     branches=branch_ct,
+#     #     departments=dept_ct,
+#     #     ranks=rank_ct,
+#     #     roles=role_ct,
+#     #     users=user_ct,
+#     #     employees=emp_ct,
+#     #     promotion_policies=policy_ct,
+#     #     tenancies=tenancy_ct,
+#     #     bills=bill_ct,
+#     #     payments=payment_ct
+#     # )
+#     counts = {
+#       "branches":   branch_ct,
+#       "departments":dept_ct,
+#       "ranks": rank_ct,
+#       "roles":role_ct,
+#       "users": user_ct,
+#       "employees": emp_ct,
+#       "promotion_policies": policy_ct,
+#       "tenancies": tenancy_ct,
+#       "bills":bill_ct,
+#       "payments": payment_ct 
 
-      # … all your other counts …
-    }
-    # broadcast to every HR summary socket in that org
-    # manager.broadcast_json(str(org_id), {"type":"update", "payload": {"counts": counts}})
-    manager.broadcast(
-      str(org_id),
-      json.dumps({"type":"update", "payload": {"counts": counts}})
-    )
+#       # … all your other counts …
+#     }
+#     # broadcast to every HR summary socket in that org
+#     # manager.broadcast_json(str(org_id), {"type":"update", "payload": {"counts": counts}})
+#     manager.broadcast(
+#       str(org_id),
+#       json.dumps({"type":"update", "payload": {"counts": counts}})
+#     )
 
+def push_summary_update(db: Session, org_id: UUID):
+    counts_payload = _build_summary_payload(db, org_id)  # returns {"counts": {...}}
+    message = {"type": "update", "payload": counts_payload}
+    # Use our helper which wraps send_json
+    asyncio.create_task(manager.broadcast_json(str(org_id), message))
 
 async def _build_summary_payload(db: Session, org_id: UUID):
     """
@@ -105,18 +111,33 @@ async def _build_summary_payload(db: Session, org_id: UUID):
             .filter(Tenancy.organization_id == org_id)
             .count()
     )
-    counts = SummaryCounts(
-        branches=branch_ct,
-        departments=dept_ct,
-        ranks=rank_ct,
-        roles=role_ct,
-        users=user_ct,
-        employees=emp_ct,
-        promotion_policies=policy_ct,
-        tenancies=tenancy_ct,
-        bills=bill_ct,
-        payments=payment_ct
-    )
+    # counts = SummaryCounts(
+    #     branches=branch_ct,
+    #     departments=dept_ct,
+    #     ranks=rank_ct,
+    #     roles=role_ct,
+    #     users=user_ct,
+    #     employees=emp_ct,
+    #     promotion_policies=policy_ct,
+    #     tenancies=tenancy_ct,
+    #     bills=bill_ct,
+    #     payments=payment_ct
+    # )
+
+    counts = {
+      "branches":   branch_ct,
+      "departments":dept_ct,
+      "ranks": rank_ct,
+      "roles":role_ct,
+      "users": user_ct,
+      "employees": emp_ct,
+      "promotion_policies": policy_ct,
+      "tenancies": tenancy_ct,
+      "bills":bill_ct,
+      "payments": payment_ct 
+
+      # … all your other counts …
+    }
     # return OrganizationSummarySchema(
     #     organization=OrganizationSchema.from_orm(org),
     #     counts=counts
@@ -125,9 +146,10 @@ async def _build_summary_payload(db: Session, org_id: UUID):
       str(org_id),
       json.dumps({"type":"update", "payload": {"counts": counts}})
     )
-    return OrganizationCountSummarySchema(
-        counts=counts
-    )
+    return counts
+    # return OrganizationCountSummarySchema(
+    #     counts=counts
+    # )
 
 
 
