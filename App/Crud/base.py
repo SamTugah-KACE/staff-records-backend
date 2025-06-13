@@ -1,5 +1,6 @@
+import asyncio
 import json
-from fastapi import HTTPException, UploadFile
+from fastapi import Depends, HTTPException, UploadFile
 from sqlalchemy import inspect, String, and_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -13,6 +14,9 @@ from google.cloud import storage
 import logging
 from sqlalchemy.sql import and_, or_
 from Apis.summary import push_summary_update
+from Service.storage_service import BaseStorage
+from Utils.storage_utils import get_storage_service
+from Utils.util import get_organization_acronym
 from Models.Tenants.organization import Organization
 from Models.Tenants.role import Role
 from Models.models import Employee, User
@@ -300,6 +304,7 @@ class CRUDBase:
         role_id: Optional[UUID] = None,
         user_id: Optional[UUID] = None,
         file: Optional[UploadFile] = None,
+        storage: BaseStorage = Depends(get_storage_service)
     ) -> Any:
         """
         Enhanced create method to handle dependent nested relationships.
@@ -352,10 +357,11 @@ class CRUDBase:
             # Handle file upload if provided
             if file:
                 user_files = [{"filename": fil.filename, "content": await fil.read()} for fil in file]
-                uploaded_image_urls = gcs.upload_to_gcs(
-                    files=user_files,
-                    folder=f"organizations/{org.name}/user_profiles"
-                )
+                # uploaded_image_urls = gcs.upload_to_gcs(
+                #     files=user_files,
+                #     folder=f"organizations/{org.name}/user_profiles"
+                # )
+                uploaded_image_urls = storage.upload(user_files, f"organizations/{get_organization_acronym(org.name)}/user_profiles") 
             else:
                 uploaded_image_urls = ""
 
@@ -397,6 +403,7 @@ class CRUDBase:
             db.add(new_employee)
             db.commit()
             db.refresh(new_employee)
+            asyncio.create_task(push_summary_update(db, str(obj_in.organization_id)))
 
             if profile_image_str == "{}" or profile_image_str == "":
                 profile_image_str = None
@@ -417,7 +424,7 @@ class CRUDBase:
             # Audit the creation action
             self.audit_action(db, "create", self.model.__tablename__, new_employee.id, user_id)
 
-            push_summary_update(db, obj_in.organization_id)
+            # asyncio.create_task(push_summary_update(db, obj_in.organization_id))
             return new_employee
         
 
@@ -500,7 +507,7 @@ class CRUDBase:
 
             db.commit()
             db.refresh(db_obj)
-
+            asyncio.create_task(push_summary_update(db, str(db_obj.id)))
             # Handle file upload if provided
             if file:
                 file_info = self.upload_to_gcs(file)
@@ -516,7 +523,8 @@ class CRUDBase:
 
             # Audit the creation action
             self.audit_action(db, "create", self.model.__tablename__, db_obj.id, user_id)
-            push_summary_update(db, main_obj_data.get("organization_id"))
+            asyncio.create_task(push_summary_update(db, main_obj_data.get("organization_id")))
+
             return db_obj
         except IntegrityError as e:
             db.rollback()
@@ -670,7 +678,7 @@ class CRUDBase:
                 )
                 db.add(file_entry)
                 db.commit()
-
+            asyncio.create_task(push_summary_update(db, str(obj_data.get("organization_id"))))
             self.audit_action(db, "update", self.model.__tablename__, db_obj.id, getattr(db_obj, "updated_by", None))
             return db_obj
 
@@ -795,7 +803,8 @@ class CRUDBase:
             # --- Delete the Object ---
             db.delete(obj)
             db.commit()
-            push_summary_update(db, obj.id)
+            # push_summary_update(db, obj.id)
+            asyncio.create_task(push_summary_update(db, obj.id))
             self.audit_action(db, "delete", self.model.__tablename__, obj.id, user_id)
             return {"message": "Record deleted successfully."}
 

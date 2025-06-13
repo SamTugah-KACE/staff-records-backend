@@ -167,13 +167,15 @@ async def delete_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, db: 
     if not department or department.organization_id != org_id:
         raise HTTPException(status_code=404, detail="Department not found")
     delete_department(db, department)
-    # build fresh summary  and broadcast to the request organization
-    schema_obj = await _build_summary_payload(db, org_id)
-    payload = jsonable_encoder(schema_obj)  # <-- turns Pydantic schema into plain dict
-    message = json.dumps({"type": "update", "payload": payload})
 
-    # Fire-and-forget so HTTP response isn't delayed
-    asyncio.create_task(manager.broadcast(str(org_id), message))
+    asyncio.create_task(push_summary_update(db, str(org_id)))
+    # build fresh summary  and broadcast to the request organization
+    # schema_obj = await _build_summary_payload(db, org_id)
+    # payload = jsonable_encoder(schema_obj)  # <-- turns Pydantic schema into plain dict
+    # message = json.dumps({"type": "update", "payload": payload})
+
+    # # Fire-and-forget so HTTP response isn't delayed
+    # asyncio.create_task(manager.broadcast(str(org_id), message))
     return {"detail": "Department deleted successfully"}
 
 
