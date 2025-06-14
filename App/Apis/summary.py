@@ -71,6 +71,58 @@ router = APIRouter(prefix="/organizations", tags=["Summary"])
 #       json.dumps({"type":"update", "payload": {"counts": counts}})
 #     )
 
+# === 1️⃣  Sync helper, for push_summary_update  ===
+def build_summary_payload_sync(db: Session, org_id: UUID):
+    """
+    Helper function to build the summary payload for an organization.
+    This is used in the WebSocket endpoint to send the initial summary.
+    """
+    # Fetch the organization
+    org = db.query(Organization).get(org_id)
+    print("Building summary for org, org object:", org)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    # Compute counts
+    branch_ct   = db.query(Branch).filter(Branch.organization_id == org_id).count()
+    dept_ct     = db.query(Department).filter(Department.organization_id == org_id).count()
+    rank_ct     = db.query(Rank).filter(Rank.organization_id == org_id).count()
+    role_ct     = db.query(Role).filter(Role.organization_id == org_id).count()
+    user_ct     = db.query(User).filter(User.organization_id == org_id).count()
+    emp_ct      = db.query(Employee).filter(Employee.organization_id == org_id).count()
+    policy_ct   = db.query(PromotionPolicy).filter(PromotionPolicy.organization_id == org_id).count()
+    tenancy_ct  = db.query(Tenancy).filter(Tenancy.organization_id == org_id).count()
+    
+    bill_ct     = (
+        db.query(Bill)
+          .join(Tenancy, Bill.tenancy_id == Tenancy.id)
+            .filter(Tenancy.organization_id == org_id)
+            .count()
+    )
+    payment_ct  = (
+        db.query(Payment)
+          .join(Bill, Payment.bill_id == Bill.id)
+          .join(Tenancy, Bill.tenancy_id == Tenancy.id)
+            .filter(Tenancy.organization_id == org_id)
+            .count()
+    )
+   
+    counts = {
+      "branches":   branch_ct,
+      "departments":dept_ct,
+      "ranks": rank_ct,
+      "roles":role_ct,
+      "users": user_ct,
+      "employees": emp_ct,
+      "promotion_policies": policy_ct,
+      "tenancies": tenancy_ct,
+      "bills":bill_ct,
+      "payments": payment_ct 
+
+      # … all your other counts …
+    }
+
+    return{"counts": counts}
 
 
 async def _build_summary_payload(db: Session, org_id: UUID):
@@ -147,18 +199,40 @@ async def _build_summary_payload(db: Session, org_id: UUID):
     #     counts=counts
     # )
 
+# === 2️⃣  Async helper, for your WS initial send  ===
+async def build_summary_payload_async(db: Session, org_id: UUID) -> dict:
+    # you can simply wrap the sync version in a threadpool so you don't block the loop:
+    from anyio import to_thread
+    return await to_thread.run_sync(build_summary_payload_sync, db, org_id)
+
+
+# def push_summary_update(organization_id):
+#     """Sync background task to rebuild summary and broadcast it."""
+#     db = SessionLocal()
+#     try:
+#         payload = _build_summary_payload(db, organization_id)
+#         if payload is None:
+#             return
+#         message = json.dumps({"type": "update", "payload": payload})
+#         manager.broadcast(str(organization_id), message)
+#     finally:
+#         db.close()
+
+
 
 def push_summary_update(organization_id):
-    """Sync background task to rebuild summary and broadcast it."""
-    db = SessionLocal()
-    try:
-        payload = _build_summary_payload(db, organization_id)
-        if payload is None:
-            return
-        message = json.dumps({"type": "update", "payload": payload})
-        manager.broadcast(str(organization_id), message)
-    finally:
-        db.close()
+     """Sync background task to rebuild summary and broadcast it."""
+     db = SessionLocal()
+     try:
+        payload = build_summary_payload_sync(db, organization_id)
+        if not payload:
+             return
+        manager.broadcast(str(organization_id), json.dumps({
+             "type": "update",
+            "payload": payload
+         }))
+     finally:
+         db.close()
 
 # async def push_summary_update(db: Session, org_id: UUID):
 #     counts_payload = await _build_summary_payload(db, org_id)  # returns {"counts": {...}}

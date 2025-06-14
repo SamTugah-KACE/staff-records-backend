@@ -7,7 +7,7 @@ from .deps_ws import get_current_user_ws
 from notification.socket import manager
 import json
 from uuid import UUID
-from .summary import _build_summary_payload
+from .summary import _build_summary_payload, build_summary_payload_async
 from Models.Tenants.role import Role
 from fastapi.encoders import jsonable_encoder
 
@@ -62,7 +62,8 @@ async def websocket_summary(
         print("✅ organization loaded:", org.id)
 
         # 5) Build & send initial summary
-        payload = await _build_summary_payload(db, org_uuid)
+        # payload = await _build_summary_payload(db, org_uuid)
+        payload = await build_summary_payload_async(db, org_uuid)
         # print("\n\nschema_obj:: ", schema_obj)
         # payload = jsonable_encoder(schema_obj)  # <-- turns Pydantic schema into plain dict
         # print("\n\njsonable thing")
