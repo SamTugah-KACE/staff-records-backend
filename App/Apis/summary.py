@@ -260,17 +260,20 @@ async def build_summary_payload_async(db: Session, org_id: UUID) -> dict:
     return await to_thread.run_sync(build_summary_payload_sync, db, org_id)
 
 
-# def push_summary_update(organization_id):
-#     """Sync background task to rebuild summary and broadcast it."""
-#     db = SessionLocal()
-#     try:
-#         payload = _build_summary_payload(db, organization_id)
-#         if payload is None:
-#             return
-#         message = json.dumps({"type": "update", "payload": payload})
-#         manager.broadcast(str(organization_id), message)
-#     finally:
-#         db.close()
+def push_summary_update(db, organization_id):
+    """Sync background task to rebuild summary and broadcast it."""
+    # db = SessionLocal()
+    if db is None:
+        db: Session = get_db()
+        print("recreating db session")
+    try:
+        payload = _build_summary_payload(db, organization_id)
+        if payload is None:
+            return
+        message = json.dumps({"type": "update", "payload": payload})
+        manager.broadcast(str(organization_id), message)
+    finally:
+        db.close()
 
 
 
@@ -288,18 +291,18 @@ async def build_summary_payload_async(db: Session, org_id: UUID) -> dict:
 #      finally:
 #          db.close()
 
-async def push_summary_update(organization_id):
-    """Async background task: computes counts in thread and broadcasts on WS."""
-    # 1) run blocking DB work in thread
-    counts = await anyio.to_thread.run_sync(
-        lambda: _build_counts(SessionLocal(), organization_id)
-    )
-    if counts is None:
-        return
+# async def push_summary_update(organization_id):
+#     """Async background task: computes counts in thread and broadcasts on WS."""
+#     # 1) run blocking DB work in thread
+#     counts = await anyio.to_thread.run_sync(
+#         lambda: _build_counts(SessionLocal(), organization_id)
+#     )
+#     if counts is None:
+#         return
 
-    message = json.dumps({"type": "update", "payload": {"counts": counts}})
-    # 2) await the async broadcast
-    await manager.broadcast(str(organization_id), message)
+#     message = json.dumps({"type": "update", "payload": {"counts": counts}})
+#     # 2) await the async broadcast
+#     await manager.broadcast(str(organization_id), message)
 
 # async def push_summary_update(db: Session, org_id: UUID):
 #     counts_payload = await _build_summary_payload(db, org_id)  # returns {"counts": {...}}

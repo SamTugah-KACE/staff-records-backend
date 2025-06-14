@@ -116,14 +116,14 @@ def enlist_staff(
 
 #Department endpoints
 @router.post("/organizations/{org_id}/departments", response_model=DepartmentOut,  tags=["Organizational Departments"])
-def create_department_endpoint(org_id: uuid.UUID, dept_in: DepartmentCreate, background_tasks: BackgroundTasks,  db: Session = Depends(get_db)):
+def create_department_endpoint(org_id: uuid.UUID, dept_in: DepartmentCreate, db: Session = Depends(get_db)):
     """
     Create a new department for the given organization.
     """
     # org = db.query(Organization).filter(Organization.id == org_id).first()
     # if not org:
     #     raise HTTPException(status_code=404, detail="Organization not found")
-    department = create_department(org_id, background_tasks, db, dept_in)
+    department = create_department(org_id, db, dept_in)
     return department
 
 
@@ -148,27 +148,27 @@ def get_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, db: Session =
     return department
 
 @router.patch("/organizations/{org_id}/departments/{dept_id}", response_model=DepartmentOut,  tags=["Organizational Departments"])
-def update_department_endpoint(org_id: uuid.UUID, background_task: BackgroundTasks, dept_id: uuid.UUID, dept_in: DepartmentUpdate, db: Session = Depends(get_db)):
+def update_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, dept_in: DepartmentUpdate, db: Session = Depends(get_db)):
     """
     Update an existing department for the given organization.
     """
     department = get_department(db, dept_id)
     if not department or department.organization_id != org_id:
         raise HTTPException(status_code=404, detail="Department not found")
-    updated_department = update_department(db, background_task, department, dept_in)
+    updated_department = update_department(db, department, dept_in)
     return updated_department
 
 @router.delete("/organizations/{org_id}/departments/{dept_id}",  tags=["Organizational Departments"])
-async def delete_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, background_task:BackgroundTasks, db: Session = Depends(get_db)):
+async def delete_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, db: Session = Depends(get_db)):
     """
     Delete a department from the given organization.
     """
     department = get_department(db, dept_id)
     if not department or department.organization_id != org_id:
         raise HTTPException(status_code=404, detail="Department not found")
-    delete_department(db, background_task, department)
+    delete_department(db, department)
 
-    # asyncio.create_task(push_summary_update(db, str(org_id)))
+    asyncio.create_task(push_summary_update(db, str(org_id)))
     # build fresh summary  and broadcast to the request organization
     # schema_obj = await _build_summary_payload(db, org_id)
     # payload = jsonable_encoder(schema_obj)  # <-- turns Pydantic schema into plain dict
@@ -192,12 +192,11 @@ async def delete_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, back
 @router.post("/roles", tags=["Roles"], response_model=RoleCreateSchema)
 async def create_roles(
     obj_in: RoleCreateSchema,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     created_by: Optional[UUID] = None,
 ):
     try:
-        result =  role_crud.create(db=db, background_tasks=background_tasks, obj_in=obj_in,user_id=created_by )
+        result =  role_crud.create(db=db, obj_in=obj_in,user_id=created_by )
         return result
     except HTTPException as e:
         raise e
@@ -207,12 +206,11 @@ async def create_roles(
 @router.post("/role", tags=["Roles"], response_model=RoleCreateSchema)
 async def create(
     obj_in: RoleCreateSchema,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     created_by: Optional[UUID] = None,
 ):
     try:
-        result =  create_role(db=db, background_tasks=background_tasks, obj_in=obj_in,user_id=created_by )
+        result =  create_role(db=db, obj_in=obj_in,user_id=created_by )
         
         return result
     except HTTPException as e:
@@ -364,9 +362,9 @@ async def create_employee(
         # (Pydantic models allow you to set arbitrary attributes.)
         emp_data._plain_password = plain_password
         emp_data._role_id = role_id  # Will be used by the event listener
- 
+
         # Call the CRUD function to create the employee.
-        result = await employee_crud.create_employee(db=db,background_tasks=background_tasks, obj_in=emp_data, role_id=role_id, user_id=created_by, file=file)
+        result = await employee_crud.create_employee(db=db, obj_in=emp_data, role_id=role_id, user_id=created_by, file=file)
 
         # Retrieve the organization details to include in the email template.
         org = db.query(Organization).filter(Organization.id == emp_data.organization_id).first()
@@ -474,13 +472,12 @@ async def list_staff(
 @router.patch("/staff/{staff_id}", tags=["Employee Management"], response_model=EmployeeSchema)
 async def update_employee(
     staff_id: UUID,
-    background_tasks: BackgroundTasks,
     # organization_id: UUID = Form(..., description="Organization ID for multi-tenancy"),
     emp_data: EmployeeSchema = Form(),
     db: Session = Depends(get_db),
 ):
     try:
-        result = await employee_crud.update(db=db, background_tasks=background_tasks, reference= {"id": staff_id}, obj_in=emp_data)
+        result = await employee_crud.update(db=db, reference= {"id": staff_id}, obj_in=emp_data)
         return result
     except HTTPException as e:
         raise e

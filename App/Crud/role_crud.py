@@ -2,12 +2,12 @@
 import asyncio
 from typing import Optional
 from sqlalchemy.orm import Session
-from fastapi import BackgroundTasks, HTTPException
+from fastapi import HTTPException
 from Apis.summary import push_summary_update
 from Models.Tenants.role import Role
 from uuid import UUID
 
-def create_role(db: Session, background_tasks: BackgroundTasks, obj_in, user_id: Optional[UUID] = None) -> Role:
+def create_role(db: Session, obj_in, user_id: Optional[UUID] = None) -> Role:
     """
     Enhanced create method to handle insertion of selected permissions.
     The obj_in is a Pydantic model (RoleCreateSchema) that includes:
@@ -40,7 +40,7 @@ def create_role(db: Session, background_tasks: BackgroundTasks, obj_in, user_id:
         db.add(new_role)
         db.commit()
         db.refresh(new_role)
-        background_tasks.add_task(push_summary_update,  role_data.get("organization_id"))
+        asyncio.create_task(push_summary_update(db, role_data.get("organization_id")))
         return new_role
 
     except Exception as e:
@@ -66,7 +66,7 @@ def get_roles_by_org(db: Session, organization_id: UUID, skip: int = 0, limit: i
     return roles
 
 
-def update_role(db: Session, background_tasks: BackgroundTasks, role_id: UUID, role_in) -> Role:
+def update_role(db: Session, role_id: UUID, role_in) -> Role:
     """
     Update an existing role with new data.
     """
@@ -80,11 +80,11 @@ def update_role(db: Session, background_tasks: BackgroundTasks, role_id: UUID, r
     
     db.commit()
     db.refresh(role)
-    background_tasks.add_task(push_summary_update, role.organization_id)
+    asyncio.create_task(push_summary_update(db, role.organization_id))
     return role
 
 
-def delete_role(db: Session, background_tasks: BackgroundTasks, role_id: UUID) -> None:
+def delete_role(db: Session, role_id: UUID) -> None:
     """
     Delete a role by its ID.
     """
@@ -94,7 +94,7 @@ def delete_role(db: Session, background_tasks: BackgroundTasks, role_id: UUID) -
     
     db.delete(role)
     db.commit()
-    background_tasks.add_task(push_summary_update,  role.organization_id)
+    asyncio.create_task(push_summary_update(db, role.organization_id))
     return None
 
 def get_role_permissions(db: Session, role_id: UUID) -> list:

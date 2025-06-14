@@ -1,6 +1,6 @@
 import asyncio
 import json
-from fastapi import BackgroundTasks, HTTPException
+from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from Apis.summary import _build_summary_payload, push_summary_update
@@ -11,7 +11,7 @@ import uuid
 from notification.socket import manager
 from sqlalchemy.exc import IntegrityError
 
-def create_department(organization_id:uuid.UUID, background_task: BackgroundTasks, db: Session, dept_in: DepartmentCreate) -> Department:
+def create_department(organization_id:uuid.UUID, db: Session, dept_in: DepartmentCreate) -> Department:
     try:
 
         org = db.query(Organization).filter(Organization.id == organization_id).first()
@@ -52,9 +52,7 @@ def create_department(organization_id:uuid.UUID, background_task: BackgroundTask
         # # Fire-and-forget so HTTP response isn't delayed
         # asyncio.create_task(manager.broadcast(str(organization_id), message))
         # push_summary_update(db, organization_id)
-        # asyncio.create_task(push_summary_update(db, organization_id))
-        # schedule the summary broadcast on FastAPI’s loop, using its own session
-        background_task.add_task(push_summary_update, organization_id)
+        asyncio.create_task(push_summary_update(db, organization_id))
         return department
     except IntegrityError as e:
         db.rollback()
@@ -87,7 +85,7 @@ def get_department(db: Session, dept_id: uuid.UUID):
     
     return db.query(Department).filter(Department.id == dept_id).first()
 
-def update_department(db: Session, background_task:BackgroundTasks, department: Department, dept_in: DepartmentUpdate) -> Department:
+def update_department(db: Session, department: Department, dept_in: DepartmentUpdate) -> Department:
     # depart = db.query(Department).filter(Department.id == department.id).first()
     # if not depart:
     #     raise HTTPException(status_code=400, detail="Department not found.")
@@ -96,13 +94,11 @@ def update_department(db: Session, background_task:BackgroundTasks, department: 
         setattr(department, key, value)
     db.commit()
     db.refresh(department)
-    # asyncio.create_task(push_summary_update(db, department.organization_id))
-    background_task.add_task(push_summary_update, department.organization_id)
+    asyncio.create_task(push_summary_update(db, department.organization_id))
     return department
 
-def delete_department(db: Session, background_task: BackgroundTasks,  department: Department):
+def delete_department(db: Session, department: Department):
     db.delete(department)
     db.commit()
-    background_task.add_task(push_summary_update, department.organization_id)
     # push_summary_update(db, department.organization_id)
-    # asyncio.create_task(push_summary_update(db, department.organization_id))
+    asyncio.create_task(push_summary_update(db, department.organization_id))
