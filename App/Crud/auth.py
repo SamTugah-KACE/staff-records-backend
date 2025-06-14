@@ -5,7 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import httpx
 from sqlalchemy.orm import Session, joinedload
-from typing import Dict, Optional, List, Union
+from typing import Any, Dict, Optional, List, Union
 from Utils.rate_limiter import RateLimiter
 from database.db_session import get_db
 from Models.models import User, Token, Dashboard, Employee
@@ -417,6 +417,39 @@ async def get_current_user(
         "permissions": role_obj.permissions
     }
 
+async def _decode_and_validate_token(
+    token_str: str,
+    db: Session
+) -> Dict[str, Any]:
+    """
+    Core logic from your get_current_user, minus FastAPI-specific Depends.
+    Decodes the JWT, checks exp + inactivity, updates last_activity,
+    and returns the raw token payload.
+    """
+    token_data = await global_security.decode_token(token_str)
+    if not token_data:
+        raise HTTPException(401, "Invalid token")
+
+    now_ts = datetime.utcnow().timestamp()
+    exp    = token_data.get("exp")
+    if not exp or now_ts > exp:
+        db.query(Token).filter(Token.token == token_str).delete()
+        db.commit()
+        raise HTTPException(401, "Token expired")
+
+    last_act = token_data.get("last_activity")
+    if last_act and (datetime.utcnow() - datetime.fromtimestamp(last_act)) > timedelta(minutes=60):
+        db.query(Token).filter(Token.token == token_str).delete()
+        db.commit()
+        raise HTTPException(401, "Logged out due to inactivity")
+
+    # update last_activity
+    db.query(Token).filter(Token.token == token_str).update(
+        {"last_activity": datetime.utcnow()}
+    )
+    db.commit()
+
+    return token_data
 
 def require_permissions(required: List[str]):
     """

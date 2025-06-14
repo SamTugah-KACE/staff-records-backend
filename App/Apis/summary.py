@@ -1,5 +1,6 @@
 import asyncio
 import json
+import anyio
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from uuid import UUID
@@ -125,6 +126,59 @@ def build_summary_payload_sync(db: Session, org_id: UUID):
     return{"counts": counts}
 
 
+
+def _build_counts(db, org_id):
+    """Sync helper to compute counts dict."""
+    org = db.query(Organization).get(org_id)
+    if not org:
+        return None
+    # Compute counts
+    branch_ct   = db.query(Branch).filter(Branch.organization_id == org_id).count()
+    dept_ct     = db.query(Department).filter(Department.organization_id == org_id).count()
+    rank_ct     = db.query(Rank).filter(Rank.organization_id == org_id).count()
+    role_ct     = db.query(Role).filter(Role.organization_id == org_id).count()
+    user_ct     = db.query(User).filter(User.organization_id == org_id).count()
+    emp_ct      = db.query(Employee).filter(Employee.organization_id == org_id).count()
+    policy_ct   = db.query(PromotionPolicy).filter(PromotionPolicy.organization_id == org_id).count()
+    tenancy_ct  = db.query(Tenancy).filter(Tenancy.organization_id == org_id).count()
+    
+    bill_ct     = (
+        db.query(Bill)
+          .join(Tenancy, Bill.tenancy_id == Tenancy.id)
+            .filter(Tenancy.organization_id == org_id)
+            .count()
+    )
+    payment_ct  = (
+        db.query(Payment)
+          .join(Bill, Payment.bill_id == Bill.id)
+          .join(Tenancy, Bill.tenancy_id == Tenancy.id)
+            .filter(Tenancy.organization_id == org_id)
+            .count()
+    )
+    
+    counts = {
+      "branches":   branch_ct,
+      "departments":dept_ct,
+      "ranks": rank_ct,
+      "roles":role_ct,
+      "users": user_ct,
+      "employees": emp_ct,
+      "promotion_policies": policy_ct,
+      "tenancies": tenancy_ct,
+      "bills":bill_ct,
+      "payments": payment_ct 
+
+      # … all your other counts …
+    }
+
+    return counts
+
+
+
+
+
+
+
 async def _build_summary_payload(db: Session, org_id: UUID):
     """
     Helper function to build the summary payload for an organization.
@@ -220,19 +274,32 @@ async def build_summary_payload_async(db: Session, org_id: UUID) -> dict:
 
 
 
-def push_summary_update(organization_id):
-     """Sync background task to rebuild summary and broadcast it."""
-     db = SessionLocal()
-     try:
-        payload = build_summary_payload_sync(db, organization_id)
-        if not payload:
-             return
-        manager.broadcast(str(organization_id), json.dumps({
-             "type": "update",
-            "payload": payload
-         }))
-     finally:
-         db.close()
+# def push_summary_update(organization_id):
+#      """Sync background task to rebuild summary and broadcast it."""
+#      db = SessionLocal()
+#      try:
+#         payload = build_summary_payload_sync(db, organization_id)
+#         if not payload:
+#              return
+#         manager.broadcast(str(organization_id), json.dumps({
+#              "type": "update",
+#             "payload": payload
+#          }))
+#      finally:
+#          db.close()
+
+async def push_summary_update(organization_id):
+    """Async background task: computes counts in thread and broadcasts on WS."""
+    # 1) run blocking DB work in thread
+    counts = await anyio.to_thread.run_sync(
+        lambda: _build_counts(SessionLocal(), organization_id)
+    )
+    if counts is None:
+        return
+
+    message = json.dumps({"type": "update", "payload": {"counts": counts}})
+    # 2) await the async broadcast
+    await manager.broadcast(str(organization_id), message)
 
 # async def push_summary_update(db: Session, org_id: UUID):
 #     counts_payload = await _build_summary_payload(db, org_id)  # returns {"counts": {...}}
@@ -242,7 +309,8 @@ def push_summary_update(organization_id):
 #     # This will actually await send_json on *all* sockets
 #     await manager.broadcast_json(str(org_id), message)
 
-
+async def _build_summary_payload_async(db: Session, org_id: UUID):
+    return await anyio.to_thread.run_sync(lambda: _build_counts(db, org_id))
 
 @router.get("/{org_id}/summary", response_model=OrganizationCountSummarySchema)
 def get_organization_summary(
