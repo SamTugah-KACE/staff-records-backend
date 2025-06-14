@@ -438,7 +438,7 @@ async def _decode_and_validate_token(
         raise HTTPException(401, "Token expired")
 
     last_act = token_data.get("last_activity")
-    if last_act and (datetime.utcnow() - datetime.fromtimestamp(last_act)) > timedelta(minutes=60):
+    if last_act and (datetime.utcnow() - datetime.fromtimestamp(last_act)) > datetime.timedelta(minutes=60):
         db.query(Token).filter(Token.token == token_str).delete()
         db.commit()
         raise HTTPException(401, "Logged out due to inactivity")
