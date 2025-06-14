@@ -30,7 +30,7 @@ async def websocket_summary(
 ):
     # 1) Authenticate
     try:
-        user = user = await global_security.get_current_user_ws(token, db)
+        user = await global_security.get_current_user_ws(token, db)
         print("✅ user in ws_summary:", user.id, "org:", user.organization_id)
     except Exception:
         print("❌ auth failed, closing")
