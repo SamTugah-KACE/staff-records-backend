@@ -44,7 +44,7 @@ class Security:
         # self.length =length
         # Setup a TTL cache for decoded tokens if possible
         if TTLCache:
-            self.token_cache = TTLCache(maxsize=1024, ttl=token_expire_minutes * 60)
+            self.token_cache = TTLCache(maxsize=1024, ttl=token_expire_minutes * 480)
         else:
             self.token_cache = {}
 
