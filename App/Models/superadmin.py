@@ -16,3 +16,13 @@ class SuperAdmin(BaseModel):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+
+
+
+class SuperAdminSession(BaseModel):
+    __tablename__ = "superadmin_sessions"
+    
+    uuid = Column(String, primary_key=True)
+    username = Column(String)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)

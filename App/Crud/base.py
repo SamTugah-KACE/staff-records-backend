@@ -403,7 +403,7 @@ class CRUDBase:
             db.add(new_employee)
             db.commit()
             db.refresh(new_employee)
-            asyncio.create_task(push_summary_update(db, str(obj_in.organization_id)))
+            push_summary_update(db, str(obj_in.organization_id))
 
             if profile_image_str == "{}" or profile_image_str == "":
                 profile_image_str = None
@@ -424,7 +424,7 @@ class CRUDBase:
             # Audit the creation action
             self.audit_action(db, "create", self.model.__tablename__, new_employee.id, user_id)
 
-            # asyncio.create_task(push_summary_update(db, obj_in.organization_id))
+            # push_summary_update(db, obj_in.organization_id))
             return new_employee
         
 
@@ -507,7 +507,7 @@ class CRUDBase:
 
             db.commit()
             db.refresh(db_obj)
-            asyncio.create_task(push_summary_update(db, str(db_obj.id)))
+            push_summary_update(db, str(db_obj.id))
             # Handle file upload if provided
             if file:
                 file_info = self.upload_to_gcs(file)
@@ -523,7 +523,7 @@ class CRUDBase:
 
             # Audit the creation action
             self.audit_action(db, "create", self.model.__tablename__, db_obj.id, user_id)
-            asyncio.create_task(push_summary_update(db, main_obj_data.get("organization_id")))
+            push_summary_update(db, main_obj_data.get("organization_id"))
 
             return db_obj
         except IntegrityError as e:
@@ -678,7 +678,7 @@ class CRUDBase:
                 )
                 db.add(file_entry)
                 db.commit()
-            asyncio.create_task(push_summary_update(db, str(obj_data.get("organization_id"))))
+            push_summary_update(db, str(obj_data.get("organization_id")))
             self.audit_action(db, "update", self.model.__tablename__, db_obj.id, getattr(db_obj, "updated_by", None))
             return db_obj
 
@@ -804,7 +804,7 @@ class CRUDBase:
             db.delete(obj)
             db.commit()
             # push_summary_update(db, obj.id)
-            asyncio.create_task(push_summary_update(db, obj.id))
+            push_summary_update(db, obj.id)
             self.audit_action(db, "delete", self.model.__tablename__, obj.id, user_id)
             return {"message": "Record deleted successfully."}
 

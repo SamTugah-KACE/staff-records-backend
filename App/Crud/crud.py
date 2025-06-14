@@ -297,9 +297,21 @@ class CRUDBase:
                     
                     
                     
-                    # if employee_data.get("email", "").strip():
-                    #     raise HTTPException(status_code=400, detail="Email Required!")
-            
+                    #check if employee email, contact_info and other unique data  already exists
+                    isEmailExist = db.query(Employee).filter(Employee.email == employee_data["email"]).first()
+                    if isEmailExist:
+                        raise HTTPException(status_code=400, detail="User Email Already Exist")
+                    
+                    if "contact_info" in employee_data and "phone" in employee_data["contact_info"]:
+                        isPhoneExist = db.query(Employee).filter(Employee.contact_info["phone"].astext == employee_data["contact_info"]["phone"]).first()
+                        if isPhoneExist:
+                            raise HTTPException(status_code=400, detail="User Phone Already Exist")
+                    elif "contact_info" in employee_data and "contact" in employee_data["contact_info"]:
+                        isPhoneExist = db.query(Employee).filter(Employee.contact_info["phone"].astext == employee_data["contact_info"]["phone"]).first()
+                        if isPhoneExist:
+                            raise HTTPException(status_code=400, detail="User Phone Already Exist")
+                    
+                
             
             
             

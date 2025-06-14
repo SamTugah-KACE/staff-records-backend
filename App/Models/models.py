@@ -240,33 +240,6 @@ class Department(BaseModel):
 
 
 
-# User Model
-class User(BaseModel):
-    __tablename__ = "users"
-
-    username = Column(String, nullable=False, unique=True)
-    email = Column(String, nullable=False, unique=True )
-    hashed_password = Column(String, nullable=False)
-    role_id = Column(UUID(as_uuid=True), ForeignKey("roles.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
-    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
-    is_active = Column(Boolean, default=True)
-    image_path = Column(String, nullable=True)  # Path to the facial image for authentication
-    last_login = Column(DateTime(timezone=True), nullable=True)
-    login_attempts = Column(Integer, default=0)
-    tourCompleted = Column(Boolean, default=True)
-    
-
-    organization = relationship("Organization", back_populates="users")
-    role = relationship("Role", back_populates="users")
-    # employee = relationship("Employee", back_populates="users")
-    files = relationship(
-        "FileStorage",
-        primaryjoin="and_(FileStorage.record_id == User.id, FileStorage.record_type == 'users')",
-        foreign_keys="[FileStorage.record_id, FileStorage.record_type]",
-        viewonly=True,
-    )
-register_file_path_listener(User, ['image_path'])
-
 class Token(BaseModel):
     __tablename__ = "tokens"
 
@@ -365,7 +338,38 @@ class Employee(BaseModel):
     employee_type = relationship("EmployeeType", back_populates="employees")
 
     department = relationship("Department", foreign_keys=[department_id], backref="employees")
+
+# User Model
+class User(BaseModel):
+    __tablename__ = "users"
+
+    username = Column(String, nullable=False, unique=True)
+    email = Column(String, nullable=False, unique=True )
+    hashed_password = Column(String, nullable=False)
+    role_id = Column(UUID(as_uuid=True), ForeignKey("roles.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=False)
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    # employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.id", onupdate="CASCADE", ondelete="CASCADE"), nullable=True)
+    is_active = Column(Boolean, default=True)
+    image_path = Column(String, nullable=True)  # Path to the facial image for authentication
+    last_login = Column(DateTime(timezone=True), nullable=True)
+    login_attempts = Column(Integer, default=0)
+    tourCompleted = Column(Boolean, default=True)
     
+
+    organization = relationship("Organization", back_populates="users")
+    role = relationship("Role", back_populates="users")
+    # employee = relationship("Employee", back_populates="users")
+    files = relationship(
+        "FileStorage",
+        primaryjoin="and_(FileStorage.record_id == User.id, FileStorage.record_type == 'users')",
+        foreign_keys="[FileStorage.record_id, FileStorage.record_type]",
+        viewonly=True,
+    )
+register_file_path_listener(User, ['image_path'])
+
+# =============================================================================
+# Helper Function to Sync Employee to User
+# =============================================================================
 
 def _sync_employee_to_user(connection, old_email, old_org_id, changes, employee_id):
     """
