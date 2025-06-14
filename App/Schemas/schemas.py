@@ -480,7 +480,7 @@ class StaffOption(BaseModel):
     id: UUID
     title: str
     first_name: str
-    middle_name: str=None
+    middle_name:  Optional[str] = None
     last_name: str
 
     class Config:
