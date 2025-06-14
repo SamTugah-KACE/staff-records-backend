@@ -52,7 +52,7 @@ def create_department(organization_id:uuid.UUID, db: Session, dept_in: Departmen
         # # Fire-and-forget so HTTP response isn't delayed
         # asyncio.create_task(manager.broadcast(str(organization_id), message))
         # push_summary_update(db, organization_id)
-        asyncio.create_task(push_summary_update(db, organization_id))
+        
         return department
     except IntegrityError as e:
         db.rollback()

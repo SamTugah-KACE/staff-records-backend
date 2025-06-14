@@ -116,7 +116,7 @@ def enlist_staff(
 
 #Department endpoints
 @router.post("/organizations/{org_id}/departments", response_model=DepartmentOut,  tags=["Organizational Departments"])
-def create_department_endpoint(org_id: uuid.UUID, dept_in: DepartmentCreate, db: Session = Depends(get_db)):
+async def create_department_endpoint(org_id: uuid.UUID, dept_in: DepartmentCreate, db: Session = Depends(get_db)):
     """
     Create a new department for the given organization.
     """
@@ -124,6 +124,7 @@ def create_department_endpoint(org_id: uuid.UUID, dept_in: DepartmentCreate, db:
     # if not org:
     #     raise HTTPException(status_code=404, detail="Organization not found")
     department = create_department(org_id, db, dept_in)
+    asyncio.create_task(push_summary_update(db, str(org_id)))
     return department
 
 
