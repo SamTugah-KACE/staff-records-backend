@@ -74,8 +74,9 @@ router = APIRouter(prefix="/organizations", tags=["Summary"])
 def push_summary_update(db: Session, org_id: UUID):
     counts_payload = _build_summary_payload(db, org_id)  # returns {"counts": {...}}
     message = {"type": "update", "payload": counts_payload}
+    manager.broadcast_json(str(org_id), message)
     # Use our helper which wraps send_json
-    asyncio.create_task(manager.broadcast_json(str(org_id), message))
+    # asyncio.create_task(manager.broadcast_json(str(org_id), message))
 
 async def _build_summary_payload(db: Session, org_id: UUID):
     """

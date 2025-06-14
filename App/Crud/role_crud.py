@@ -40,7 +40,7 @@ def create_role(db: Session, obj_in, user_id: Optional[UUID] = None) -> Role:
         db.add(new_role)
         db.commit()
         db.refresh(new_role)
-        push_summary_update(db, role_data.get("organization_id"))
+        asyncio.create_task(push_summary_update(db, role_data.get("organization_id")))
         return new_role
 
     except Exception as e:
@@ -80,7 +80,7 @@ def update_role(db: Session, role_id: UUID, role_in) -> Role:
     
     db.commit()
     db.refresh(role)
-    push_summary_update(db, role.organization_id)
+    asyncio.create_task(push_summary_update(db, str(role.organization_id)))
     return role
 
 
@@ -94,7 +94,7 @@ def delete_role(db: Session, role_id: UUID) -> None:
     
     db.delete(role)
     db.commit()
-    push_summary_update(db, role.organization_id)
+    asyncio.create_task(push_summary_update(db, str(role.organization_id)))
     return None
 
 def get_role_permissions(db: Session, role_id: UUID) -> list:

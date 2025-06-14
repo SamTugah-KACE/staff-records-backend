@@ -773,7 +773,7 @@ class UserCRUD:
             db.add(obj)
             db.commit()
             db.refresh(obj)
-            push_summary_update(db, str(organization_id))
+            asyncio.create_task(asyncio.create_task(push_summary_update(db, str(organization_id))))
         return str(obj.id)
 
     # --------------------------
@@ -869,7 +869,7 @@ class UserCRUD:
             db.add(role_obj)
             db.commit()
             db.refresh(role_obj)
-            push_summary_update(db, str(organization_id))
+            asyncio.create_task(push_summary_update(db, str(organization_id)))
         return str(role_obj.id)
 
     # ------------------------------------------------------------------------------
@@ -1109,7 +1109,7 @@ class UserCRUD:
                                 db.add(new_role)
                                 db.commit()
                                 db.refresh(new_role)
-                                push_summary_update(db, str(organization_id))
+                                asyncio.create_task(push_summary_update(db, str(organization_id)))
                                 transient_role_id = str(new_role.id)
                             else:
                                 transient_role_id = str(existing_role.id)
@@ -1141,7 +1141,7 @@ class UserCRUD:
                         setattr(record, "_plain_password", transient_pwd)
                         db.add(record)
                         db.flush()
-                        push_summary_update(db, str(organization_id))
+                        asyncio.create_task(push_summary_update(db, str(organization_id)))
                         # # Update employee_map using lowercase email.
                         # if "email" in model_data and model_data["email"]:
                         #     employee_map[model_data["email"].lower()] = record.id
@@ -1174,7 +1174,7 @@ class UserCRUD:
                             "model": "employee",
                             "data": row_data
                         })
-                        push_summary_update(db, str(organization_id))
+                        asyncio.create_task(push_summary_update(db, str(organization_id)))
 
                         # Optionally send email notification.
                         if "email" in model_data and model_data["email"]:
@@ -1314,7 +1314,7 @@ class UserCRUD:
                             "model": model_choice,
                             "data": row_data
                         })
-                        push_summary_update(db, str(organization_id))
+                        asyncio.create_task(push_summary_update(db, str(organization_id)))
                     except Exception as e:
                         db.rollback()
                         print("\n\nnon-employee models error")
@@ -1639,7 +1639,7 @@ class UserCRUD:
                 db.commit()
                 db.refresh(et_obj)
             employee_type_id = et_obj.id
-            push_summary_update(db, str(organization_id))
+            asyncio.create_task(push_summary_update(db, str(organization_id)))
 
         # Step 8: Process 'rank' if provided.
         rank_id = None
@@ -1696,7 +1696,7 @@ class UserCRUD:
                         related_record = model_cls(employee_id=None, **filtered_data)
                         db.add(related_record)
                     db.commit()
-                    push_summary_update(db, str(organization_id))
+                    asyncio.create_task(push_summary_update(db, str(organization_id)))
         
         # Step 11: Upload Profile Image.
         image_url = ""
@@ -1764,7 +1764,7 @@ class UserCRUD:
         db.add(employee_record)
         db.commit()
         db.refresh(employee_record)
-        push_summary_update(db, str(organization_id))
+        asyncio.create_task(push_summary_update(db, str(organization_id)))
         
         # Step 14: Update related records (from RELATED_MODEL_MAP) with the new employee_id.
         for related_key, (model_cls, _) in RELATED_MODEL_MAP.items():
@@ -1786,7 +1786,7 @@ class UserCRUD:
                 )
                 db.add(nok_record)
             db.commit()
-            push_summary_update(db, str(organization_id))
+            asyncio.create_task(push_summary_update(db, str(organization_id)))
         
         # Step 16: Create the User record.
         # user_record = User(
@@ -1824,7 +1824,7 @@ class UserCRUD:
                     if dept_obj:
                         dept_obj.department_head_id = employee_record.id
                         db.commit()
-                        push_summary_update(db, str(organization_id))
+                        asyncio.create_task(push_summary_update(db, str(organization_id)))
         # If the role's permissions indicate the employee is a branch manager.
         if "branch:manager" in permissions:
             branch_identifier = employee_data.get("branch")
@@ -1839,7 +1839,7 @@ class UserCRUD:
                     if branch_obj:
                         branch_obj.manager_id = employee_record.id
                         db.commit()
-                        push_summary_update(db, str(organization_id))
+                        asyncio.create_task(push_summary_update(db, str(organization_id)))
         
         # Optionally, if the UI sends explicit department/branch IDs, assign them.
         if "department" in employee_data:
@@ -1849,7 +1849,7 @@ class UserCRUD:
                 if dept_obj:
                     employee_record.department_id = dept_id
                     db.commit()
-                    push_summary_update(db, str(organization_id))
+                    asyncio.create_task(push_summary_update(db, str(organization_id)))
             except Exception:
                 pass
         if "branch" in employee_data:
@@ -1857,7 +1857,7 @@ class UserCRUD:
                 branch_id = UUID(employee_data["branch"])
                 # Additional branch assignment logic can be added here.
                 db.commit()
-                push_summary_update(db, str(organization_id))
+                asyncio.create_task(push_summary_update(db, str(organization_id)))
             except Exception:
                 pass
          
@@ -1887,7 +1887,7 @@ class UserCRUD:
                 sender_id=sender,
                 use_case=use_case
             )
-        push_summary_update(db, str(org.id))
+        asyncio.create_task(push_summary_update(db, str(org.id)))
         # Step 19: Log audit events.
         self.log_audit(db, "CREATE", created_by, "employees", employee_record.id)
         # await self.log_audit(db, "CREATE", created_by, "users", user_record.id)
@@ -2079,7 +2079,7 @@ class UserCRUD:
                 use_case=use_case
             )
         
-        push_summary_update(db, str(organization_id))
+        asyncio.create_task(push_summary_update(db, str(organization_id)))
         return {"message": "User updated successfully."}
 
 
@@ -2291,7 +2291,7 @@ async def create_employee_user(
         # Log Audit
         await log_audit(db, self.audit_model, "create_employee_user_account", performed_by, "users", user.id)
 
-        push_summary_update(db, str(employee.organization_id))
+        asyncio.create_task(push_summary_update(db, str(employee.organization_id)))
         return {"message": "Employee account created successfully.", "username": username, "password": password}
 
     except Exception as e:
