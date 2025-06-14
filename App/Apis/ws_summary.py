@@ -7,13 +7,18 @@ from .deps_ws import get_current_user_ws
 from notification.socket import manager
 import json
 from uuid import UUID
-from .summary import _build_summary_payload, _build_summary_payload_async, build_summary_payload_async
+from .summary import _build_summary_payload
 from Models.Tenants.role import Role
 from fastapi.encoders import jsonable_encoder
-
+from Utils.security import Security
+from Utils.config import ProductionConfig
 
 router = APIRouter()
 
+settings = ProductionConfig()
+
+ # In a multi-tenant system sharing one schema, a common secret key is often used.
+global_security = Security(secret_key=settings.SECRET_KEY, algorithm=settings.ALGORITHM, token_expire_minutes=480)
 
 @router.websocket("/ws/summary/{organization_id}/{user_id}")
 async def websocket_summary(
@@ -25,7 +30,7 @@ async def websocket_summary(
 ):
     # 1) Authenticate
     try:
-        user = await get_current_user_ws(token, db)
+        user = user = await global_security.get_current_user_ws(token, db)
         print("✅ user in ws_summary:", user.id, "org:", user.organization_id)
     except Exception:
         print("❌ auth failed, closing")
@@ -62,15 +67,12 @@ async def websocket_summary(
         print("✅ organization loaded:", org.id)
 
         # 5) Build & send initial summary
-        # payload = await _build_summary_payload(db, org_uuid)
-        # payload = await build_summary_payload_async(db, org_uuid)
-        payload = await _build_summary_payload_async(db, org_uuid)
+        payload = await _build_summary_payload(db, org_uuid)
         # print("\n\nschema_obj:: ", schema_obj)
         # payload = jsonable_encoder(schema_obj)  # <-- turns Pydantic schema into plain dict
         # print("\n\njsonable thing")
         # payload = schema_obj
-        # message = {"type": "initial", "payload": payload}
-        message = {"type": "initial", "payload": {"counts": payload}}
+        message = {"type": "initial", "payload": payload}
         await websocket.send_json(message)
         print("✅ sent initial payload")
 
