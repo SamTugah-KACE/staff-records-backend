@@ -15,7 +15,8 @@ class BaseConfig(BaseSettings):
     ENVIRONMENT: str = Field("development", env="ENVIRONMENT", description="Application environment (development, production, testing).")
     DEBUG: bool = Field(False, description="Debug mode for the application.")
     # secrets.token_urlsafe(32)
-    SECRET_KEY: str = Field(..., env="SECRET_KEY", description="Secret key for application security.")
+    # SECRET_KEY: str = Field(..., env="SECRET_KEY", description="Secret key for application security.")
+    SECRET_KEY: str = Field(secrets.token_urlsafe(32), env="SECRET_KEY", description="Secret key for application security.")
     ALGORITHM: str = Field("HS256", env="ALGORITHM")
     COOKIE_REFRESH_EXPIRE = 290500
 

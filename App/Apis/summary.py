@@ -142,10 +142,10 @@ async def _build_summary_payload(db: Session, org_id: UUID):
     #     organization=OrganizationSchema.from_orm(org),
     #     counts=counts
     # )
-    manager.broadcast(
-      str(org_id),
-      json.dumps({"type":"update", "payload": {"counts": counts}})
-    )
+    # manager.broadcast(
+    #   str(org_id),
+    #   json.dumps({"type":"update", "payload": {"counts": counts}})
+    # )
     return counts
     # return OrganizationCountSummarySchema(
     #     counts=counts
