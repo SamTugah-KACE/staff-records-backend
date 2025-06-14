@@ -3,7 +3,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from uuid import UUID
-from database.db_session import get_db
+from database.db_session import SessionLocal, get_db
 from Models.models import ( Department, User, Employee)
 from Models.Tenants.organization import (Organization, Branch, Rank, PromotionPolicy, Tenancy, Bill, Payment)
 from Models.Tenants.role import Role
@@ -147,13 +147,26 @@ async def _build_summary_payload(db: Session, org_id: UUID):
     #     counts=counts
     # )
 
-async def push_summary_update(db: Session, org_id: UUID):
-    counts_payload = await _build_summary_payload(db, org_id)  # returns {"counts": {...}}
-    message = {"type": "update", "payload": counts_payload}
-    # Use our helper which wraps send_json
-    # asyncio.create_task(manager.broadcast_json(str(org_id), message))
-    # This will actually await send_json on *all* sockets
-    await manager.broadcast_json(str(org_id), message)
+
+def push_summary_update(organization_id):
+    """Sync background task to rebuild summary and broadcast it."""
+    db = SessionLocal()
+    try:
+        payload = _build_summary_payload(db, organization_id)
+        if payload is None:
+            return
+        message = json.dumps({"type": "update", "payload": payload})
+        manager.broadcast(str(organization_id), message)
+    finally:
+        db.close()
+
+# async def push_summary_update(db: Session, org_id: UUID):
+#     counts_payload = await _build_summary_payload(db, org_id)  # returns {"counts": {...}}
+#     message = {"type": "update", "payload": counts_payload}
+#     # Use our helper which wraps send_json
+#     # asyncio.create_task(manager.broadcast_json(str(org_id), message))
+#     # This will actually await send_json on *all* sockets
+#     await manager.broadcast_json(str(org_id), message)
 
 
 

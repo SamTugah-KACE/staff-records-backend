@@ -1,6 +1,6 @@
 import asyncio
 import json
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.orm import Session
 from Apis.summary import _build_summary_payload, push_summary_update
@@ -11,19 +11,19 @@ import uuid
 from notification.socket import manager
 from sqlalchemy.exc import IntegrityError
 
-def create_department(organization_id:uuid.UUID, db: Session, dept_in: DepartmentCreate) -> Department:
+def create_department(organization_id:uuid.UUID, background_task: BackgroundTasks, db: Session, dept_in: DepartmentCreate) -> Department:
     try:
 
         org = db.query(Organization).filter(Organization.id == organization_id).first()
         if not org:
             raise HTTPException(status_code=400, detail="Organization not found.")
 
-        is_dept_exist = db.query(Department).filter(Department.name == dept_in.name.strip(), Organization.id == organization_id).first()
+        is_dept_exist = db.query(Department).filter(Department.name == dept_in.name.strip(), Department.organization_id == organization_id).first()
         if is_dept_exist:
             raise HTTPException(status_code=400, detail=f"{dept_in.name} already exist.")
         
         if dept_in.department_head_id:
-            is_hod_already_assigned = db.query(Department).filter(Department.department_head_id == dept_in.department_head_id, Organization.id == organization_id).first()
+            is_hod_already_assigned = db.query(Department).filter(Department.department_head_id == dept_in.department_head_id, Department.organization_id == organization_id).first()
             if is_hod_already_assigned:
                 raise HTTPException(status_code=400, detail="Staff[HoD] already assigned to another Department.")
         
@@ -33,7 +33,7 @@ def create_department(organization_id:uuid.UUID, db: Session, dept_in: Departmen
             if org.nature != "Branch Managed":
                 raise HTTPException(status_code=400, detail=f"'{org.name}' data indicates its Managed Single-handedly, therefore, there's no need to assign '{dept_in.name}' to a given Branch.")
         
-            is_dept_exist_in_same_branch = db.query(Department).filter(Department.name == dept_in.name.strip(), Branch.id == dept_in.branch_id).first()
+            is_dept_exist_in_same_branch = db.query(Department).filter(Department.name == dept_in.name.strip(), Department.branch_id == dept_in.branch_id).first()
             if is_dept_exist_in_same_branch:
                 raise HTTPException(status_code=400, detail="Department already exist within same same Branch.")
             
@@ -52,7 +52,9 @@ def create_department(organization_id:uuid.UUID, db: Session, dept_in: Departmen
         # # Fire-and-forget so HTTP response isn't delayed
         # asyncio.create_task(manager.broadcast(str(organization_id), message))
         # push_summary_update(db, organization_id)
-        asyncio.create_task(push_summary_update(db, organization_id))
+        # asyncio.create_task(push_summary_update(db, organization_id))
+        # schedule the summary broadcast on FastAPI’s loop, using its own session
+        background_task.add_task(push_summary_update, organization_id)
         return department
     except IntegrityError as e:
         db.rollback()
@@ -85,7 +87,7 @@ def get_department(db: Session, dept_id: uuid.UUID):
     
     return db.query(Department).filter(Department.id == dept_id).first()
 
-def update_department(db: Session, department: Department, dept_in: DepartmentUpdate) -> Department:
+def update_department(db: Session, background_task:BackgroundTasks, department: Department, dept_in: DepartmentUpdate) -> Department:
     # depart = db.query(Department).filter(Department.id == department.id).first()
     # if not depart:
     #     raise HTTPException(status_code=400, detail="Department not found.")
@@ -94,11 +96,13 @@ def update_department(db: Session, department: Department, dept_in: DepartmentUp
         setattr(department, key, value)
     db.commit()
     db.refresh(department)
-    asyncio.create_task(push_summary_update(db, department.organization_id))
+    # asyncio.create_task(push_summary_update(db, department.organization_id))
+    background_task.add_task(push_summary_update, department.organization_id)
     return department
 
-def delete_department(db: Session, department: Department):
+def delete_department(db: Session, background_task: BackgroundTasks,  department: Department):
     db.delete(department)
     db.commit()
+    background_task.add_task(push_summary_update, department.organization_id)
     # push_summary_update(db, department.organization_id)
-    asyncio.create_task(push_summary_update(db, department.organization_id))
+    # asyncio.create_task(push_summary_update(db, department.organization_id))
