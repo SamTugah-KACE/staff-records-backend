@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Body, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, Body, Query
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.declarative import DeclarativeMeta
 from sqlalchemy.orm import Session
@@ -25,6 +25,8 @@ from Models.Tenants.role import Role
 from Models.dynamic_models import EmployeeDynamicData
 from Schemas.schemas import EmployeeUserUpdateResponse  # Pydantic schema for User (includes org ID)
 from Crud.auth import get_current_user
+from .summary import push_summary_update
+
 
 
 MODEL_REGISTRY: Dict[str, Type[DeclarativeMeta]] = {
@@ -143,6 +145,7 @@ router = APIRouter(prefix="/api/records", tags=["records"])
 )
 def update_employee_and_user(
     employee_id: UUID,
+    background_tasks: BackgroundTasks,
     payload: Dict[str, Optional[str]] = Body(
         ...,
         example={
@@ -151,6 +154,7 @@ def update_employee_and_user(
             "role_id": "083d84cf-11b8-4219-a3e1-23d616503516"
         },
     ),
+    
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
@@ -320,6 +324,8 @@ def update_employee_and_user(
         role         = updated_role,
     )
 
+    background_tasks.add_task(push_summary_update, db, str(org_id))
+
     return response_payload
 
 
@@ -332,6 +338,7 @@ def update_employee_and_user(
 )
 def delete_or_archive_employee(
     employee_id: UUID,
+    background_tasks: BackgroundTasks,
     deleteType: str = Depends(lambda deleteType: deleteType),  # e.g. "soft" or "hard"
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
@@ -389,7 +396,7 @@ def delete_or_archive_employee(
         db.delete(linked_user)
     db.delete(employee)
     db.commit()
-
+    background_tasks.add_task(push_summary_update, db, str(org_id))
     return {
         "employee_id": str(employee_id),
         "deleted": True
