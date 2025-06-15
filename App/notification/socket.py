@@ -148,8 +148,10 @@ class ConnectionManager:
         If that user is offline (no entry in user_connections), this is a no-op.
         """
         key = (organization_id, user_id)
+        print(f"key in send_personal_message:: {key}")
         if key not in self.user_connections:
             return
+        print(f"user connections:: {self.user_connections}")
         for ws in list(self.user_connections[key]):
             try:
                 await ws.send_text(message)

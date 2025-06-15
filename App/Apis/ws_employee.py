@@ -67,7 +67,8 @@ async def employee_ws(
 
     # 4) All checks pass → accept the WebSocket and register it
     await websocket.accept()
-    await manager.register(organization_id, str(user.id), websocket)
+    await manager.register(organization_id, str(employee_id), websocket)
+    # await manager.register(organization_id, str(user.id), websocket)
 
     try:
         # 5) Send the “initial” snapshot
