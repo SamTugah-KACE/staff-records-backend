@@ -9,7 +9,7 @@ from database.db_session import get_async_db
 from Models.superadmin import SuperAdmin
 from Utils.sup_security import decode_jwt
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/superadmin/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/super-auth/superadmin/auth/token")
 
 settings = ProductionConfig()
 
@@ -26,7 +26,7 @@ async def get_current_superadmin(
     except Exception:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
     result = await db.execute(
-        select(SuperAdmin).where(SuperAdmin.id == admin_uuid, SuperAdmin.is_active)
+        select(SuperAdmin).where(SuperAdmin.id == admin_uuid, SuperAdmin.is_active.is_(True))
     )
     admin = result.scalars().first()
     if not admin:

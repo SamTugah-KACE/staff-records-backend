@@ -141,6 +141,9 @@ async def logout_superadmin(
     refresh_token: str = Depends(get_refresh_token),
     db: AsyncSession = Depends(get_async_db),
 ):
+    """
+    Invalidate the current session's refresh token and clear cookie.
+    """
     result = await db.execute(
         delete(RefreshToken).where(
             RefreshToken.superadmin_id == current_admin.id,

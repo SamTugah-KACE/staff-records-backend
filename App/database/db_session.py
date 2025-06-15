@@ -77,21 +77,33 @@ def get_db():
         db.close()
 
 
-
-
-
-# Dependency for Async Database Session
-@asynccontextmanager
+# **NEW** async generator function for FastAPI
 async def get_async_db():
-    """Provides an asynchronous database session."""
+    """
+    Provides an AsyncSession, properly `yield`ed for FastAPI dependency injection.
+    """
     async with AsyncSessionLocal() as session:
         try:
             yield session
-        except Exception as e:
+        except:
             await session.rollback()
-            raise e
+            raise
         finally:
             await session.close()
+
+
+# Dependency for Async Database Session
+# @asynccontextmanager
+# async def get_async_db():
+#     """Provides an asynchronous database session."""
+#     async with AsyncSessionLocal() as session:
+#         try:
+#             yield session
+#         except Exception as e:
+#             await session.rollback()
+#             raise e
+#         finally:
+#             await session.close()
 
 # async def get_db():
 #     async with async_session() as session:
