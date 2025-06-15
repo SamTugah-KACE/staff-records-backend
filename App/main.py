@@ -70,7 +70,7 @@ app.mount("/static", StaticFiles(directory=config.STORAGE_ROOT), name="static")
 # CORS Configuration
 origins = [
     "http://localhost:3000",  # React development
-    "http://127.0.0.1:3000",
+    "https://staff-records-superadmin-ui.onrender.com",
     "https://gi-kace-solutions.onrender.com",  # Update with production frontend URL
 ]
 app.add_middleware(
