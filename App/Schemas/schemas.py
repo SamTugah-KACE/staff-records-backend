@@ -1064,3 +1064,8 @@ class EmployeeUserUpdateResponse(BaseModel):
     class Config:
         # Ensure UUIDs serialize as strings
         json_encoders = { UUID: lambda v: str(v) }
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str

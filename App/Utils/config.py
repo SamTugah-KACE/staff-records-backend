@@ -19,6 +19,15 @@ class BaseConfig(BaseSettings):
     SECRET_KEY: str = Field(secrets.token_urlsafe(32), env="SECRET_KEY", description="Secret key for application security.")
     ALGORITHM: str = Field("HS256", env="ALGORITHM")
     COOKIE_REFRESH_EXPIRE = 290500
+    # Cookie settings
+    COOKIE_NAME:str = "refresh_token"
+    COOKIE_SECURE:bool = True            # send only over HTTPS
+    COOKIE_HTTPONLY:bool = True          # not accessible via JS
+    COOKIE_SAMESITE:str = "lax"       # CSRF protection
+    COOKIE_PATH:str = "/"
+
+    ACCESS_TOKEN_EXPIRE_MINUTES:int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 15))
+    REFRESH_TOKEN_EXPIRE_DAYS:int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", 7))
 
     # … existing fields …
     API_BASE_URL: str = Field(

@@ -1,14 +1,20 @@
 # Apis/routers/superadmin_auth.py
-from fastapi import APIRouter, Form, Response, HTTPException, Depends, BackgroundTasks
+from datetime import datetime
+from fastapi import APIRouter, Form, Request, Response, HTTPException, Depends, BackgroundTasks, status, Response
+from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
+from Crud.sup_dependencies import get_current_superadmin, get_refresh_token
+from Schemas.schemas import TokenResponse
+from Utils.sup_security import create_access_token, create_refresh_token, verify_password
 from Crud.auth import get_current_user
-from database.db_session import get_db
-from Models.superadmin import SuperAdmin
+from database.db_session import get_async_db, get_db
+from Models.superadmin import RefreshToken, SuperAdmin
 from Utils.security import Security
-from Utils.config import ProductionConfig
+from Utils.config import ProductionConfig 
 from cachetools import TTLCache
 from uuid import uuid4
-
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 settings = ProductionConfig()
@@ -62,6 +68,88 @@ def superadmin_login(
         "dashboard_url": f"/dev/dashboard/{dashboard_id}",
     }
 
+
+
+@router.post("/token", response_model=TokenResponse)
+async def login_for_tokens(
+    response: Response,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    
+    db: AsyncSession = Depends(get_async_db),
+):
+    # 1) verify credentials
+    result = await db.execute(
+        select(SuperAdmin).where(SuperAdmin.username == form_data.username)
+    )
+    admin = result.scalars().first()
+    if not admin or not verify_password(form_data.password, admin.hashed_password):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+
+    # 2) create access & refresh tokens
+    access_token = create_access_token(subject=str(admin.id))
+    refresh_token, expires = create_refresh_token()
+
+    db.add(
+        RefreshToken(
+            superadmin_id=admin.id,
+            token=refresh_token,
+            expires_at=expires,
+        )
+    )
+    await db.commit()
+
+    # 3) set cookie
+    response.set_cookie(
+        settings.COOKIE_NAME,
+        refresh_token,
+        secure=settings.COOKIE_SECURE,
+        httponly=settings.COOKIE_HTTPONLY,
+        samesite=settings.COOKIE_SAMESITE,
+        path=settings.COOKIE_PATH,
+        expires=expires,
+    )
+
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_access_token(
+    response: Response,
+    refresh_token: str = Depends(get_refresh_token),
+    db: AsyncSession = Depends(get_async_db),
+):
+    # verify token exists and not expired
+    result = await db.execute(
+        select(RefreshToken).where(
+            RefreshToken.token == refresh_token,
+            RefreshToken.expires_at > datetime.utcnow(),
+        )
+    )
+    rt = result.scalars().first()
+    if not rt:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+
+    # issue new access token
+    access_token = create_access_token(subject=str(rt.superadmin_id))
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout_superadmin(
+    response: Response,
+    request: Request,
+    current_admin = Depends(get_current_superadmin),
+    refresh_token: str = Depends(get_refresh_token),
+    db: AsyncSession = Depends(get_async_db),
+):
+    result = await db.execute(
+        delete(RefreshToken).where(
+            RefreshToken.superadmin_id == current_admin.id,
+            RefreshToken.token == refresh_token,
+        )
+    )
+    await db.commit()
+    response.delete_cookie(settings.COOKIE_NAME, path=settings.COOKIE_PATH)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/dashboard/{dashboard_id}")
