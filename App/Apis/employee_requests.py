@@ -2,13 +2,13 @@
 import json
 from typing import List
 from uuid import UUID
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status, UploadFile, File, Form
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, status, UploadFile, File, Form
 from fastapi.responses import JSONResponse
 from sqlalchemy import and_
 from sqlalchemy.orm import Session, joinedload
 from Crud.auth import ensure_hr_dashboard_ws, get_current_user
 from .deps_ws import get_current_user_ws
-from Models.models import Employee, EmployeeDataInput, User
+from Models.models import Employee, EmployeeDataInput, RequestStatus, User
 from Service.storage_service import BaseStorage
 from database.db_session import get_db
 from Crud import employee_data_input
@@ -16,7 +16,8 @@ from Schemas import schemas
 # from Utils.security import get_current_active_user, get_current_active_admin
 from Utils.storage_utils import get_storage_service
 from Utils.util import extract_attachments
-
+from notification.socket import manager
+import json
 
 router = APIRouter(prefix="/employee-data-inputs", tags=["Employee Data Inputs"])
 
@@ -236,10 +237,35 @@ def read_input(
 def update_input(
     id: str,
     obj_in: schemas.EmployeeDataInputUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     # current_user=Depends(deps.get_current_active_admin),
 ):
-    return employee_data_input.update_data_input(db=db, id=id, obj_in=obj_in)
+    
+    db_obj =  employee_data_input.update_data_input(db=db, id=id, obj_in=obj_in)
+
+    if db_obj.status in (RequestStatus.Approved, RequestStatus.Rejected):
+        # Build the payload exactly as your Staff.js handler expects
+        message = {
+            "type": "change_request",
+            "payload": {
+                "request_id": str(db_obj.id),
+                "status":     db_obj.status.value if hasattr(db_obj.status, 'value') else db_obj.status,
+                "comments":   db_obj.comments or "",
+                "data_type":  db_obj.data_type,
+            }
+        }
+
+        # Schedule an async push; this won’t block the HTTP response
+        background_tasks.add_task(
+            manager.send_personal_message,
+            str(db_obj.organization_id),
+            str(db_obj.employee_id),
+            json.dumps(message),
+        )
+
+    return db_obj
+    # return employee_data_input.update_data_input(db=db, id=id, obj_in=obj_in)
 
 @router.delete(
     "/{id}",

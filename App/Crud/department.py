@@ -94,11 +94,11 @@ def update_department(db: Session, department: Department, dept_in: DepartmentUp
         setattr(department, key, value)
     db.commit()
     db.refresh(department)
-    asyncio.create_task(push_summary_update(db, department.organization_id))
+    # asyncio.create_task(push_summary_update(db, department.organization_id))
     return department
 
 def delete_department(db: Session, department: Department):
     db.delete(department)
     db.commit()
     # push_summary_update(db, department.organization_id)
-    asyncio.create_task(push_summary_update(db, department.organization_id))
+    # asyncio.create_task(push_summary_update(db, department.organization_id))

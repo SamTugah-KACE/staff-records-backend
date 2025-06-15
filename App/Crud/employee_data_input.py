@@ -470,25 +470,26 @@ def update_data_input(
     for field, value in update_data.items():
         setattr(db_obj, field, value)
 
-    # Single transaction for update, apply, and delete
-    # with db.begin():
-    #     db.add(db_obj)
-    # #     # flush to make sure db_obj is up-to-date
-    #     db.flush()
+    
     db.add(db_obj)
     db.commit()
     db.refresh(db_obj)
     
-    
+    # If we just transitioned into Approved or Rejected…
+    new_status = db_obj.status
+
     if old_status != RequestStatus.Approved and db_obj.status == RequestStatus.Approved:
         try:
+            # 1️⃣ apply only on approval
+            if new_status == RequestStatus.Approved:
+                apply_data_input(db, db_obj)
                        
             # ← apply_data_input must NOT commit internally
-            apply_data_input(db, db_obj)
+            # apply_data_input(db, db_obj)
 
+            # 2️⃣ then delete the temporary input in either case
             # delete the temporary input row
             db.delete(db_obj)
-
             # one final commit for handler + delete
             db.commit()
         except Exception:

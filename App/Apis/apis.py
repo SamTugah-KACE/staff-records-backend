@@ -149,7 +149,7 @@ def get_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, db: Session =
     return department
 
 @router.patch("/organizations/{org_id}/departments/{dept_id}", response_model=DepartmentOut,  tags=["Organizational Departments"])
-def update_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, dept_in: DepartmentUpdate, db: Session = Depends(get_db)):
+async def update_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, dept_in: DepartmentUpdate, db: Session = Depends(get_db)):
     """
     Update an existing department for the given organization.
     """
@@ -157,6 +157,7 @@ def update_department_endpoint(org_id: uuid.UUID, dept_id: uuid.UUID, dept_in: D
     if not department or department.organization_id != org_id:
         raise HTTPException(status_code=404, detail="Department not found")
     updated_department = update_department(db, department, dept_in)
+    asyncio.create_task(push_summary_update(db, str(org_id)))
     return updated_department
 
 @router.delete("/organizations/{org_id}/departments/{dept_id}",  tags=["Organizational Departments"])

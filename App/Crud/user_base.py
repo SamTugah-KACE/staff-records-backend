@@ -755,7 +755,7 @@ class UserCRUD:
         # --------------------------
     # Helper: Process Related Field
     # --------------------------
-    def process_related_field(self, db: Session, organization_id: str, value: str, table, lookup_field: str, defaults: dict) -> str:
+    def process_related_field(self, db: Session, background_tasks: BackgroundTasks, organization_id: str, value: str, table, lookup_field: str, defaults: dict) -> str:
         """
         Query the given table (e.g. Department, Rank, EmployeeType, Role) for a record matching `value`
         (case-insensitive). If not found, create a new record with provided defaults.
@@ -773,7 +773,9 @@ class UserCRUD:
             db.add(obj)
             db.commit()
             db.refresh(obj)
-            asyncio.create_task(asyncio.create_task(push_summary_update(db, str(organization_id))))
+        
+            background_tasks.add_task(push_summary_update, db, str(organization_id))
+            # asyncio.create_task(asyncio.create_task(push_summary_update(db, str(organization_id))))
         return str(obj.id)
 
     # --------------------------
@@ -830,7 +832,7 @@ class UserCRUD:
     # --------------------------
     # Helper: Get Default Role (if missing)
     # --------------------------
-    def get_or_create_default_role(self, db: Session, organization_id: str) -> str:
+    def get_or_create_default_role(self, db: Session, background_tasks: BackgroundTasks, organization_id: str) -> str:
         """
         If no role column is provided, check the organization's roles for a role named "Staff"
         with default permissions (e.g. view/edit own data only). If not found, create one.
@@ -869,7 +871,8 @@ class UserCRUD:
             db.add(role_obj)
             db.commit()
             db.refresh(role_obj)
-            asyncio.create_task(push_summary_update(db, str(organization_id)))
+            background_tasks.add_task(push_summary_update, db, str(organization_id))
+            # asyncio.create_task(push_summary_update(db, str(organization_id)))
         return str(role_obj.id)
 
     # ------------------------------------------------------------------------------
@@ -1021,7 +1024,7 @@ class UserCRUD:
                                 else:
                                     # Import Branch model from your organization module.
                                     from Models.Tenants.organization import Branch
-                                    branch_id = self.process_related_field(db, organization_id, branch_val, Branch, "name", {"location": branch_location, "manager_id": None})
+                                    branch_id = self.process_related_field(db, background_tasks, organization_id, branch_val, Branch, "name", {"location": branch_location, "manager_id": None})
                         
                         print(f"branch_id = {branch_id}")
                         # Process department if present in model_data.
@@ -1029,7 +1032,7 @@ class UserCRUD:
                             dept_val = str(model_data["department"]).strip()
                             defaults = {"branch_id": branch_id} if branch_id else {}
                             print(f"defaults = {defaults}")
-                            dept_id = self.process_related_field(db, organization_id, dept_val, Department, "name", defaults)
+                            dept_id = self.process_related_field(db,background_tasks, organization_id, dept_val, Department, "name", defaults)
                             print(f"processed department with id = {dept_id}")
                             model_data["department_id"] = dept_id
                             model_data.pop("department", None)
@@ -1037,7 +1040,7 @@ class UserCRUD:
                         # --- Process Rank ---
                         if "rank" in model_data and model_data["rank"]:
                             rank_val = str(model_data["rank"]).strip()
-                            rank_id = self.process_related_field(db, organization_id, rank_val, Rank, "name", {"min_salary": 0, "max_salary": None, "currency": "GHS"})
+                            rank_id = self.process_related_field(db, background_tasks, organization_id, rank_val, Rank, "name", {"min_salary": 0, "max_salary": None, "currency": "GHS"})
                             model_data["rank_id"] = rank_id
                             model_data.pop("rank", None)
 
@@ -1060,7 +1063,7 @@ class UserCRUD:
                             if et_val:
                                 et_val = str(et_val).strip()
                                 print("employee type value: ", et_val)
-                                et_id = self.process_related_field(db, organization_id, et_val, EmployeeType, "type_code", {})
+                                et_id = self.process_related_field(db,background_tasks, organization_id, et_val, EmployeeType, "type_code", {})
                                 model_data["employee_type_id"] = et_id
                                 model_data.pop(type_key, None)
                         # if "employee type" in model_data and model_data["employee type"]:
@@ -1109,7 +1112,8 @@ class UserCRUD:
                                 db.add(new_role)
                                 db.commit()
                                 db.refresh(new_role)
-                                asyncio.create_task(push_summary_update(db, str(organization_id)))
+                                background_tasks.add_task(push_summary_update, db, str(organization_id))
+                                # asyncio.create_task(push_summary_update(db, str(organization_id)))
                                 transient_role_id = str(new_role.id)
                             else:
                                 transient_role_id = str(existing_role.id)
@@ -1119,7 +1123,7 @@ class UserCRUD:
                                 # If no role provided, use default role (e.g. "Staff" or "Employee").
                                 # This is a fallback in case the role is not found in the database.
                                 # Locate the 'Employee' or 'staff' role configuration.
-                                transient_role_id = self.get_or_create_default_role(db, organization_id)
+                                transient_role_id = self.get_or_create_default_role(db, background_tasks, organization_id)
                             # transient_role_id = self.get_or_create_default_role(db, organization_id)
 
                         # --- Process Salary ---
@@ -1141,7 +1145,8 @@ class UserCRUD:
                         setattr(record, "_plain_password", transient_pwd)
                         db.add(record)
                         db.flush()
-                        asyncio.create_task(push_summary_update(db, str(organization_id)))
+                        background_tasks.add_task(push_summary_update, db, str(organization_id))
+                        # asyncio.create_task(push_summary_update(db, str(organization_id)))
                         # # Update employee_map using lowercase email.
                         # if "email" in model_data and model_data["email"]:
                         #     employee_map[model_data["email"].lower()] = record.id
@@ -1167,6 +1172,7 @@ class UserCRUD:
                             db.flush()
 
 
+
                         db.commit()
                         success_records.append({
                             "sheet": sheet_name,
@@ -1174,7 +1180,8 @@ class UserCRUD:
                             "model": "employee",
                             "data": row_data
                         })
-                        asyncio.create_task(push_summary_update(db, str(organization_id)))
+                        background_tasks.add_task(push_summary_update, db, str(organization_id))
+                        # asyncio.create_task(push_summary_update(db, str(organization_id)))
 
                         # Optionally send email notification.
                         if "email" in model_data and model_data["email"]:
@@ -1314,7 +1321,8 @@ class UserCRUD:
                             "model": model_choice,
                             "data": row_data
                         })
-                        asyncio.create_task(push_summary_update(db, str(organization_id)))
+                        background_tasks.add_task(push_summary_update, db, str(organization_id))
+                        # asyncio.create_task(push_summary_update(db, str(organization_id)))
                     except Exception as e:
                         db.rollback()
                         print("\n\nnon-employee models error")
