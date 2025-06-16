@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Qu
 from fastapi.responses import JSONResponse
 from sqlalchemy import and_
 from sqlalchemy.orm import Session, joinedload
+from Service.employee_aggregator import get_employee_full_record
 from Crud.auth import ensure_hr_dashboard_ws, get_current_user
 from .deps_ws import get_current_user_ws
 from Models.models import Employee, EmployeeDataInput, RequestStatus, User
@@ -263,6 +264,17 @@ def update_input(
             str(db_obj.employee_id),
             json.dumps(message),
         )
+
+        # 3️⃣ Then immediately push a fresh “update” snapshot
+        full = get_employee_full_record(db, str(db_obj.employee_id))
+        update_msg = {"type": "update", "payload": full}
+        background_tasks.add_task(
+            manager.send_personal_message,
+            str(db_obj.organization_id),
+            str(db_obj.employee_id),
+            json.dumps(update_msg, default=lambda o: str(o)),
+        )
+
 
     return db_obj
     # return employee_data_input.update_data_input(db=db, id=id, obj_in=obj_in)
