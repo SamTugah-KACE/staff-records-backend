@@ -9,10 +9,12 @@ from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, Optional, List, Dict
 from uuid import UUID
+from Crud.auth import get_current_user
 from Utils.util import sanitize_row_data
-from Utils.config import get_config, BaseConfig
+from Utils.config import get_config, BaseConfig, ProductionConfig
 from Utils.storage_utils import get_storage_service
 from Utils.sms_utils import get_sms_service
+from Utils.security import Security
 from Utils.field_mapping import map_employee_fields, merge_contact_info_fields, FIELD_SYNONYMS
 from Models.dynamic_models import EmployeeDynamicData, BulkUploadError  # dynamic table for unmatched data
 from database.db_session import get_db, get_async_db  # Dependency injection
@@ -24,6 +26,8 @@ from Schemas.schemas import (
     GetUserResponseSchema,
     OrganizationCreateSchema, OrganizationSchema,
     RoleCreateSchema, RoleSchema,
+    TourCompletedResponse,
+    TourCompletedUpdate,
     UpdateUserResponseSchema,
     UserCreateSchema, UserSchema,
     EmployeeCreateSchema, EmployeeSchema,
@@ -38,10 +42,12 @@ from Crud.async_base import CRUDBase as AsyncCRUDBase
 from Service.storage_service import BaseStorage
 from Service.sms_service import BaseSMSService
 from Service.employee_aggregator import get_employee_full_record
+import uuid
 
 
+settings = ProductionConfig()
 
-
+security = Security(settings.SECRET_KEY, settings.ALGORITHM, settings.ACCESS_TOKEN_EXPIRE_MINUTES)
 
 
 
@@ -116,182 +122,72 @@ async def bulk_insert_employee_data_api(
 
     return result
 
-# @router.post("/create", response_model=CreateUserResponseSchema, status_code=status.HTTP_201_CREATED)
-# async def create_new_user(
-#     background_tasks: BackgroundTasks,
-#     db: Session = Depends(get_db),
-#     first_name: str = Form(...),
-#     middle_name: Optional[str] = Form(None),
-#     last_name: str = Form(...),
-#     title: Optional[str] = Form("Other"),
-#     gender: Optional[str] = Form("Other"),
-#     date_of_birth: date = Form(...),
-#     marital_status: Optional[str] = Form("Other"),
-#     email: EmailStr = Form(...),
-#     contact_info: Optional[str] = Form(json.dumps({})),
-#     hire_date: Optional[date] = Form(None),
-#     termination_date: Optional[date] = Form(None),
-#     organization_id: str = Form(...),
-#     role_id: str = Form(...),
-#     image_file: UploadFile = File(...),
-#     custom_data: Optional[str] = Form(json.dumps({})),
-#     created_by: Optional[str] = Form(None),
-#     ):
-#     """
-#     Creates a user based on an existing employee record with bio authentication & secure image storage.
-#     """
-
-#     # 🔹 **Convert JSON string inputs to dictionaries safely**
-#     try:
-#         contact_info_dict = json.loads(contact_info) if contact_info else {}
-#         custom_data_dict = json.loads(custom_data) if custom_data else {}
-#     except json.JSONDecodeError:
-#         raise HTTPException(status_code=400, detail="Invalid JSON format in contact_info or custom_data")
-    
-#     # ✅ Convert UUID fields manually
-#     try:
-#         organization_idd = UUID(organization_id)
-#         role_idd = UUID(role_id)
-#         created_byy = UUID(created_by) if created_by else None
-#     except ValueError:
-#         raise HTTPException(status_code=400, detail="Invalid UUID format")
-
-#     employee_data = {
-#         "first_name":first_name,
-#         "middle_name":middle_name,
-#         "last_name": last_name,
-#         "title": title,
-#         "gender": gender,
-#         "date_of_birth": date_of_birth if date_of_birth else None,
-#         "marital_status": marital_status if marital_status else None,
-#         "email": email,
-#         "contact_info": contact_info_dict,
-#         "hire_date": hire_date if hire_date else None,
-#         "termination_date": termination_date if termination_date else None,
-#         "custom_data": custom_data_dict,
-#         "organization_id": organization_idd,
-    
-#     }
-
-
-#     result = await userbase.create_user(
-#         background_tasks=background_tasks,db=db, employee_data=employee_data, 
-#         role_id=role_idd, organization_id=organization_idd, image_file=image_file if image_file else None, created_by=created_byy)
-    
-#     print("result -- :", result)
-#     # Ensure that result contains strings for any UUID fields.
-#     result["id"] = str(result["id"])
-#     return result
 
 
 
 
-# @router.post("/create", response_model=CreateUserResponseSchema, status_code=status.HTTP_201_CREATED)
-# async def create_new_employee(
-#     background_tasks: BackgroundTasks,
-#     first_name: str = Form(...),
-#     middle_name: Optional[str] = Form(None),
-#     last_name: str = Form(...),
-#     title: Optional[str] = Form("Other"),
-#     gender: Optional[str] = Form("Other"),
-#     date_of_birth: date = Form(None),
-#     marital_status: Optional[str] = Form("Other"),
-#     email: str = Form(...),
-#     contact_info: Optional[str] = Form(json.dumps({})),
-#     hire_date: Optional[date] = Form(None),
-#     termination_date: Optional[date] = Form(None),
-#     organization_id: str = Form(...),
-#     role_id: str = Form(...),
-#     image_file: Optional[UploadFile] = File(None),
-#     custom_data: Optional[str] = Form(json.dumps({})),
-#     employee_type: Optional[str] = Form(None),
-#     rank: Optional[str] = Form(None),
-#     assigned_dept: Optional[str] = Form(None),
-#     # Managerial assignment key: inferred from Role permissions.
-#     Role: Optional[str] = Form(None),
-#     academic_qualifications: Optional[str] = Form(None),
-#     professional_qualifications: Optional[str] = Form(None),
-#     payment_details: Optional[str] = Form(None),
-#     next_of_kin: Optional[str] = Form(None),
-#     created_by: Optional[str] = Form(None),
-#     db: Session = Depends(get_db)
-# ):
-#     """
-#     Creates a new employee using dynamic data from the manager's registration form.
-    
-#     The UI can send keys using synonyms (e.g., "first name", "sex") and extra related
-#     data (academic_qualifications, professional_qualifications, payment_details, next_of_kin).
-#     """
-#     # Merge extra related JSON data.
-#     extra_data = {}
-#     for key, error_msg in [
-#         ("academic_qualifications", "Invalid JSON for academic qualifications"),
-#         ("professional_qualifications", "Invalid JSON for professional qualifications"),
-#         ("payment_details", "Invalid JSON for payment details"),
-#         ("next_of_kin", "Invalid JSON for next of kin")
-#     ]:
-#         field_val = locals().get(key)
-#         if field_val:
-#             try:
-#                 extra_data[key] = json.loads(field_val)
-#             except Exception:
-#                 raise HTTPException(status_code=400, detail=error_msg)
-    
-#     try:
-#         custom_data_dict = json.loads(custom_data) if custom_data else {}
-#     except Exception:
-#         custom_data_dict = {}
-#     custom_data_dict.update(extra_data)
-    
-#     employee_data = {
-#         "first_name": first_name,
-#         "middle_name": middle_name,
-#         "last_name": last_name,
-#         "title": title,
-#         "sex": gender,
-#         "date_of_birth": date_of_birth.isoformat() if date_of_birth else None,
-#         "marital_status": marital_status,
-#         "email": email,
-#         "contact": contact_info,  # Accept as-is: plain text or JSON string.
-#         "hire_date": hire_date.isoformat() if hire_date else None,
-#         "termination_date": termination_date.isoformat() if termination_date else None,
-#         "employee_type": employee_type,
-#         "rank": rank,
-#         "assigned_dept": assigned_dept,
-#         "Role": Role,  # For managerial assignment inference.
-#         "custom_data": json.dumps(custom_data_dict),
-#     }
-    
-#     print("\n\nemployee_data: \n", employee_data)
-#     # Validate the image file if provided
-#     if image_file and not allowed_image_file(image_file.filename):
-#         raise HTTPException(status_code=400, detail="Invalid file type. Allowed types: .jpg, .jpeg, .gif, .png")
-    
-#     try:
-#         org_id = UUID(organization_id)
-#         role_uuid = UUID(role_id)
-#         created_by_uuid = UUID(created_by) if created_by else None
-#     except Exception:
-#         raise HTTPException(status_code=400, detail="Invalid UUID provided.")
-    
-#     # Map UI keys using the mapping utility.
-#     mapped_data = map_employee_fields(employee_data)
-#     print("\n\nmapped_data: \n", mapped_data)
-#     # Merge any contact info fields (e.g. phone, address) into the "contact_info" key.
-#     normalized_data = merge_contact_info_fields(mapped_data)
+# --- GET tourCompleted -----------------------------------------------------
 
-#     print("\n\nnormalized_data: \n", normalized_data)
-#     result = await userbase.create_user(
-#         background_tasks=background_tasks,
-#         db=db,
-#         employee_data=employee_data,
-#         # employee_data = normalized_data,
-#         role_id=role_id,
-#         organization_id=organization_id,
-#         image_file=image_file,
-#         created_by=created_by,
-#     )
-#     return result
+@router.get(
+    "/{user_id}/tour-completed",
+    response_model=TourCompletedResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        404: {"description": "User not found"},
+        401: {"description": "Unauthorized"},
+    },
+)
+def get_tour_completed(
+    user_id: uuid.UUID,
+    current_user: User = Depends(security.get_current_user),
+    db: Session = Depends(get_db),
+):
+    # only allow self or admins
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    user = db.query(User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return TourCompletedResponse(tourCompleted=user.tourCompleted)
+
+# --- PATCH tourCompleted ---------------------------------------------------
+
+@router.patch(
+    "/{user_id}/tour-completed",
+    response_model=TourCompletedResponse,
+    status_code=status.HTTP_200_OK,
+    responses={
+        404: {"description": "User not found"},
+        400: {"description": "Invalid payload"},
+        401: {"description": "Unauthorized"},
+    },
+)
+def update_tour_completed(
+    user_id: uuid.UUID,
+    payload: TourCompletedUpdate,
+    current_user: User = Depends(security.get_current_user),
+    db: Session = Depends(get_db),
+):
+    # only allow self or admins
+    if current_user.id != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    user = db.query(User).get(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.tourCompleted = payload.tourCompleted
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    return TourCompletedResponse(tourCompleted=user.tourCompleted)
+
+
+
+
 
 
 from fastapi import Request

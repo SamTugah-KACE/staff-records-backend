@@ -97,6 +97,8 @@ async def _build_summary_payload(db: Session, org_id: UUID):
     rank_ct     = db.query(Rank).filter(Rank.organization_id == org_id).count()
     role_ct     = db.query(Role).filter(Role.organization_id == org_id).count()
     user_ct     = db.query(User).filter(User.organization_id == org_id).count()
+    active_users_ct = db.query(User).filter_by(organization_id=org_id, is_active=True).count(),
+    inactive_users_ct = db.query(User).filter_by(organization_id=org_id, is_active=False).count(),
     emp_ct      = db.query(Employee).filter(Employee.organization_id == org_id).count()
     policy_ct   = db.query(PromotionPolicy).filter(PromotionPolicy.organization_id == org_id).count()
     tenancy_ct  = db.query(Tenancy).filter(Tenancy.organization_id == org_id).count()
@@ -126,35 +128,44 @@ async def _build_summary_payload(db: Session, org_id: UUID):
     #     bills=bill_ct,
     #     payments=payment_ct
     # )
-    counts = {}
-    if org.nature.strip().lower() == "branch managed":
-        counts = {
-        "branches":   branch_ct,
-        "departments":dept_ct,
-        "ranks": rank_ct,
-        "roles":role_ct,
-        "users": user_ct,
-        "employees": emp_ct,
-        "promotion_policies": policy_ct,
-        "tenancies": tenancy_ct,
-        "bills":bill_ct,
-        "payments": payment_ct 
+    # counts = {}
+    # if org.nature.strip().lower() == "branch managed":
+    counts = {
+    "branches":   branch_ct,
+    "departments":dept_ct,
+    "ranks": rank_ct,
+    "roles":role_ct,
+    "users": user_ct,
+    "active_users": active_users_ct,
+    "inactive_users": inactive_users_ct,
+    "employees": emp_ct,
+    "promotion_policies": policy_ct,
+    "tenancies": tenancy_ct,
+    "bills":bill_ct,
+    "payments": payment_ct 
 
-        # … all your other counts …
-        }
-    else:
+    # … all your other counts …
+    }
+
+    if org.nature.strip().lower() != "branch managed":
+        counts.pop("branches")
+    return counts
+
+    # else:
         
-        counts = {
-        "departments":dept_ct,
-        "ranks": rank_ct,
-        "roles":role_ct,
-        "users": user_ct,
-        "employees": emp_ct,
-        "promotion_policies": policy_ct,
-        "tenancies": tenancy_ct,
-        "bills":bill_ct,
-        "payments": payment_ct 
-        }
+    #     counts = {
+    #     "departments":dept_ct,
+    #     "ranks": rank_ct,
+    #     "roles":role_ct,
+    #     "users": user_ct,
+    #     "active_users": active_users_ct,
+    #     "inactive_users": inactive_users_ct,
+    #     "employees": emp_ct,
+    #     "promotion_policies": policy_ct,
+    #     "tenancies": tenancy_ct,
+    #     "bills":bill_ct,
+    #     "payments": payment_ct 
+    #     }
     # return OrganizationSummarySchema(
     #     organization=OrganizationSchema.from_orm(org),
     #     counts=counts
@@ -163,7 +174,8 @@ async def _build_summary_payload(db: Session, org_id: UUID):
     #   str(org_id),
     #   json.dumps({"type":"update", "payload": {"counts": counts}})
     # )
-    return counts
+     # if branch‑managed, include branches; else omit
+   
     # return OrganizationCountSummarySchema(
     #     counts=counts
     # )

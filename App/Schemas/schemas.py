@@ -1069,3 +1069,12 @@ class EmployeeUserUpdateResponse(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str
+
+
+# --- SCHEMAS ---------------------------------------------------------------
+
+class TourCompletedResponse(BaseModel):
+    tourCompleted: bool = Field(..., description="Has the user completed the tour?")
+
+class TourCompletedUpdate(BaseModel):
+    tourCompleted: bool = Field(..., description="Set to true once tour is done, false to reset")
