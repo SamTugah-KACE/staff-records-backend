@@ -126,21 +126,35 @@ async def _build_summary_payload(db: Session, org_id: UUID):
     #     bills=bill_ct,
     #     payments=payment_ct
     # )
+    counts = {}
+    if org.nature.strip().lower() == "branch managed":
+        counts = {
+        "branches":   branch_ct,
+        "departments":dept_ct,
+        "ranks": rank_ct,
+        "roles":role_ct,
+        "users": user_ct,
+        "employees": emp_ct,
+        "promotion_policies": policy_ct,
+        "tenancies": tenancy_ct,
+        "bills":bill_ct,
+        "payments": payment_ct 
 
-    counts = {
-      "branches":   branch_ct,
-      "departments":dept_ct,
-      "ranks": rank_ct,
-      "roles":role_ct,
-      "users": user_ct,
-      "employees": emp_ct,
-      "promotion_policies": policy_ct,
-      "tenancies": tenancy_ct,
-      "bills":bill_ct,
-      "payments": payment_ct 
-
-      # … all your other counts …
-    }
+        # … all your other counts …
+        }
+    else:
+        
+        counts = {
+        "departments":dept_ct,
+        "ranks": rank_ct,
+        "roles":role_ct,
+        "users": user_ct,
+        "employees": emp_ct,
+        "promotion_policies": policy_ct,
+        "tenancies": tenancy_ct,
+        "bills":bill_ct,
+        "payments": payment_ct 
+        }
     # return OrganizationSummarySchema(
     #     organization=OrganizationSchema.from_orm(org),
     #     counts=counts
