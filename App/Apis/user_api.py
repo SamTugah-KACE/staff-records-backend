@@ -139,12 +139,12 @@ async def bulk_insert_employee_data_api(
 )
 def get_tour_completed(
     user_id: uuid.UUID,
-    current_user: User = Depends(security.get_current_user),
+    # current_user: User = Depends(security.get_current_user),
     db: Session = Depends(get_db),
 ):
-    # only allow self or admins
-    if current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    # # only allow self or admins
+    # if current_user.id != user_id:
+    #     raise HTTPException(status_code=403, detail="Forbidden")
 
     user = db.query(User).get(user_id)
     if not user:
@@ -167,12 +167,12 @@ def get_tour_completed(
 def update_tour_completed(
     user_id: uuid.UUID,
     payload: TourCompletedUpdate,
-    current_user: User = Depends(security.get_current_user),
+    # current_user: User = Depends(security.get_current_user),
     db: Session = Depends(get_db),
 ):
     # only allow self or admins
-    if current_user.id != user_id:
-        raise HTTPException(status_code=403, detail="Forbidden")
+    # if current_user.id != user_id:
+    #     raise HTTPException(status_code=403, detail="Forbidden")
 
     user = db.query(User).get(user_id)
     if not user:
