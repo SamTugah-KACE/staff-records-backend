@@ -353,7 +353,7 @@ class User(BaseModel):
     image_path = Column(String, nullable=True)  # Path to the facial image for authentication
     last_login = Column(DateTime(timezone=True), nullable=True)
     login_attempts = Column(Integer, default=0)
-    tourCompleted = Column(Boolean, default=True)
+    tourCompleted = Column(Boolean, default=False)
     
 
     organization = relationship("Organization", back_populates="users")
