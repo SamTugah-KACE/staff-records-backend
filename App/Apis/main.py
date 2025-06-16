@@ -564,6 +564,7 @@ async def create_organization(
         organization_id=new_org.id,  # Associate with the new organization  
     )
     setattr(new_emp, '_role_id', admin_role.id)  # Set the role ID for the employee
+    setattr(new_emp, "_plain_password", plain_password)
     # new_emp.organization_id = new_org.id  # Associate with the new organization
     db.add(new_emp)
     db.commit()
