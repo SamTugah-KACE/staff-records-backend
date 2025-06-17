@@ -417,6 +417,82 @@ async def get_current_user(
         "permissions": role_obj.permissions
     }
 
+
+async def get_current_user_for_others(
+    credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer()),
+    db: Session = Depends(get_db)
+) -> dict:
+    """
+    Retrieves the current user based on the provided JWT token.
+    - Checks that the token is valid and not expired.
+    - Checks inactivity (15 minutes threshold) and logs out if exceeded.
+    - Updates the token's last_activity timestamp on each request.
+    - Retrieves the user and associated role data.
+    
+    Returns a dictionary with keys:
+      "user": the User model instance,
+      "role": the user's role name,
+      "permissions": the permissions from the user's role.
+    """
+    token_str = credentials.credentials
+    print("get_current_user: ", token_str)
+    token_data = await global_security.decode_token(token_str)
+    print("token_data: ", token_data)
+    if not token_data:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    # Check token expiration.
+    current_ts = datetime.datetime.utcnow().timestamp()
+    exp = token_data.get("exp")
+    print("exp: ", exp)
+    if not exp or current_ts > exp:
+        db.query(Token).filter(Token.token == token_str).delete()
+        db.commit()
+        raise HTTPException(status_code=401, detail="Token expired")
+    
+    # Check inactivity: if last_activity is older than 60 minutes.
+    last_activity_ts = token_data.get("last_activity")
+    if last_activity_ts:
+        inactivity = datetime.datetime.utcnow() - datetime.datetime.fromtimestamp(last_activity_ts)
+        if inactivity > datetime.timedelta(minutes=60):  # 60 minutes of inactivity
+            # Log out the user by deleting the token.
+            db.query(Token).filter(Token.token == token_str).delete()
+            db.commit()
+            raise HTTPException(status_code=401, detail="Logged out due to inactivity")
+    
+    # Update token's last_activity timestamp.
+    new_last_activity = datetime.datetime.utcnow()
+    db.query(Token).filter(Token.token == token_str).update({"last_activity": new_last_activity})
+    db.commit()
+    
+    # Retrieve the user.
+    user_id = token_data.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token payload")
+    try:
+        user = db.query(User).filter(User.id == UUID(user_id)).first()
+        print("user obj: ", user.id)
+    except Exception:
+        raise HTTPException(status_code=401, detail="User not found")
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    
+    return user
+    # # Retrieve the user's role.
+    # role_id = token_data.get("role_id")
+    # if not role_id:
+    #     raise HTTPException(status_code=401, detail="Token missing role information")
+    # role_obj = db.query(Role).filter(Role.id == UUID(role_id)).first()
+    # if not role_obj:
+    #     raise HTTPException(status_code=400, detail="Unable to fetch user privileges")
+    
+    # return {
+    #     "id":user.id,
+    #     "user": user,
+    #     "role": role_obj.name,
+    #     "permissions": role_obj.permissions
+    # }
+
 async def _decode_and_validate_token(
     token_str: str,
     db: Session

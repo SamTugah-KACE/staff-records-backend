@@ -7,6 +7,7 @@ from pydantic import EmailStr
 from sqlalchemy.orm import Session
 from uuid import UUID 
 from typing import Dict, List, Optional
+from Crud.auth import get_current_user_for_others
 from Service.bulk_insert_service import build_account_email_html
 from email_service import EmailService
 from Service.storage_service import BaseStorage
@@ -109,7 +110,7 @@ def get_department_head(
     org_id: UUID,
     dept_id: UUID,
     db: Session = Depends(get_db),
-    current_user=Depends(security.get_current_user),
+    current_user=Depends(get_current_user_for_others),
 ):
     # — Authorization
     if current_user.organization_id != org_id:
