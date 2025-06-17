@@ -13,6 +13,7 @@ from Apis.routers import api
 from Apis.deps_ws import get_current_user_ws
 from Apis.summary import _build_summary_payload
 from Apis.summary_listeners import register_summary_listeners
+from migration_script import run_migrations
 from Models.Tenants.organization import Organization
 from Service.data_input_handlers import autodiscover_handlers
 from Models.models import Dashboard, User, Employee, EmployeeDataInput
@@ -188,79 +189,6 @@ async def websocket_chat(websocket: WebSocket, organization_id: str, user_id: st
         manager.disconnect(organization_id, websocket)
 
 
-# @app.websocket("/ws/summary/{organization_id}/{user_id}")
-# async def websocket_summary(
-#     websocket: WebSocket,
-#     organization_id: str,
-#     user_id: str,
-#     token: str = Query(...),
-#     db: Session = Depends(get_db),
-# ):
-#     """
-#     WebSocket that immediately pushes the organization-wide summary counts, 
-#     and will respond to "refresh" messages by re‐sending an updated snapshot.
-#     Clients connect to:
-#       wss://…/ws/summary/{org_id}/{user_id}?token=<jwt>
-#     """
-#     # 1) Authenticate
-#     try:
-#         print("WebSocket summary connection attempt with token:", token)
-#         if not token:
-#             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-#             return
-#         user = await get_current_user_ws(token, db)
-#         print("user identified in ws summary:", user)
-#     except Exception:
-#         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-#         return
-
-#     print(f"WebSocket connection attempt for org_id={organization_id}, user_id={user_id}\n\n{str(user.organization_id) != organization_id or str(user.id) != user_id}")
-#     # 2) Tenant + identity check
-#     if str(user.organization_id) != organization_id or str(user.id) != user_id:
-#         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-#         return
-
-#     # 3) Accept & register
-#     await websocket.accept()
-#     await manager.register(organization_id, user_id, websocket)
-
-#     try:
-#         # 4) Validate org_id as a UUID, ensure it exists
-#         try:
-#             org_uuid = UUID(organization_id)
-#         except ValueError:
-#             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-#             await manager.unregister(organization_id, user_id, websocket)
-#             return
-
-#         org = db.query(Organization).get(org_uuid)
-#         if not org:
-#             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-#             await manager.unregister(organization_id, user_id, websocket)
-#             return
-
-#         # 5) Build and send initial summary
-#         initial_payload = await _build_summary_payload(db, org_uuid)
-#         print("Initial payload for WebSocket summary:", initial_payload)
-#         await websocket.send_text(json.dumps({"type": "initial", "payload": initial_payload}))
-
-#         # 6) Wait for client “refresh” messages to re‐send updated payload
-#         while True:
-#             data = await websocket.receive_text()
-#             if data == "refresh":
-#                 new_payload = await _build_summary_payload(db, org_uuid)
-#                 await websocket.send_text(json.dumps({"type": "update", "payload": new_payload}))
-#             else:
-#                 continue
-
-#     except WebSocketDisconnect:
-#         await manager.unregister(organization_id, user_id, websocket)
-#     except Exception:
-#         if websocket.client_state.name != "CLOSED":
-#             await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
-#         await manager.unregister(organization_id, user_id, websocket)
-
-
 
 def extract_attachments(data: dict) -> list[dict]:
     """
@@ -294,113 +222,6 @@ def extract_attachments(data: dict) -> list[dict]:
     return attachments
 
 
-# @app.websocket("/ws/employee-inputs")
-# async def ws_employee_inputs(
-#     websocket: WebSocket,
-#     organization_id: str = Query(...),
-#     token: str = Query(...),
-    
-#     db: Session = Depends(get_db),
-# ):
-#     # 1) Authenticate BEFORE accept()
-#     try:
-#         print("WebSocket connection attempt with token:", token)
-#         if not token:
-#             print("No token provided in WebSocket connection attempt")
-#             # invalid/missing token → reject handshake
-#             # missing token → reject handshake
-#             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-#             return
-#         user = await global_security.get_current_user_ws(token, db)
-#         print("user role_id in websocket main:: ", user.role_id)
-#         print("user organization in websocket main:: ", user.organization_id)
-#         print("user object in websocket main:: ", user)
-#         ensure_hr_dashboard_ws(user)
-#     except Exception:
-#         # invalid/missing token → reject handshake
-#         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-#         return
-
-#     # 2) Tenant check + HR permission
-#     if str(user.organization_id) != organization_id:
-#         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-#         return
-#     # try:
-#     #     ensure_hr_dashboard_ws(user)
-#     # except Exception:
-#     #     await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-#     #     return
-
-#     # 3) All checks pass → accept and register
-#     await websocket.accept()
-#     await manager.register(organization_id, str(user.id), websocket)
-
-#     try:
-#         # 4) Build and broadcast initial payload
-#         rows = (
-#             db.query(EmployeeDataInput)
-#               .options(joinedload(EmployeeDataInput.employee))
-#               .join(Employee, Employee.id == EmployeeDataInput.employee_id)
-#               .filter(EmployeeDataInput.organization_id == organization_id)
-#               .all()
-#         )
-
-#         # batch-fetch users+roles
-#         emails = {row.employee.email for row in rows}
-#         users = (
-#             db.query(User)
-#               .options(joinedload(User.role))
-#               .filter(
-#                   and_(
-#                       User.organization_id == organization_id,
-#                       User.email.in_(emails)
-#                   )
-#               )
-#               .all()
-#         )
-#         user_map = {u.email: u for u in users}
-
-#         payload = []
-#         for row in rows:
-#             emp = row.employee
-#             full_name = " ".join(filter(None, [emp.title if emp.title != "Other" else ''.strip(), emp.first_name, emp.middle_name if emp.middle_name else ''.strip(), emp.last_name]))
-#             role_name = (user_map.get(emp.email).role.name 
-#                          if emp.email in user_map and user_map[emp.email].role 
-#                          else "N/A")
-#             attachments = extract_attachments(row.data or {})
-#             payload.append({
-#                 "id":          str(row.id),
-#                 "AccountName": full_name,
-#                 "Role":        role_name,
-#                 "Data":        row.data,
-#                 "Attachments": attachments,
-#                 "Actions":     "Pending",
-#             })
-
-#         # Broadcast to this org
-#         await manager.broadcast(organization_id, json.dumps({
-#             "type":    "initial",
-#             "payload": payload
-#         }))
-
-#         # 5) Keep-alive loop
-#         while True:
-#             # You can either expect a ping from the client...
-#             _ = await websocket.receive_text()
-#             # ...or you could do await asyncio.sleep(30) + websocket.send_text("ping")
-#             continue
-
-#     except WebSocketDisconnect:
-#         # client disconnected
-#         await manager.unregister(organization_id, str(user.id), websocket)
-
-#     except Exception:
-#         # unexpected error
-#         await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
-#         await manager.unregister(organization_id, str(user.id), websocket)
-
-#existing working  one below
-
 @app.websocket("/ws/employee-inputs")
 async def ws_employee_inputs(
     websocket: WebSocket,
@@ -430,53 +251,6 @@ async def ws_employee_inputs(
     await manager.register(organization_id, str(user.id), websocket)
 
     try:
-        # 3) Fetch inputs + employee in one go
-        # rows = (
-        #     db.query(EmployeeDataInput)
-        #       .options(joinedload(EmployeeDataInput.employee))
-        #       .join(Employee, Employee.id == EmployeeDataInput.employee_id)
-        #       .filter(EmployeeDataInput.organization_id == organization_id)
-        #       .all()
-        # )
-
-        # # 4) Batch‐fetch related Users + roles
-        # emails = {row.employee.email for row in rows}
-        # users = (
-        #     db.query(User)
-        #       .options(joinedload(User.role))
-        #       .filter(
-        #           and_(
-        #               User.organization_id == organization_id,
-        #               User.email.in_(list(emails))
-        #           )
-        #       )
-        #       .all()
-        # )
-        # user_map = {u.email: u for u in users}
-
-        # # 5) Build and broadcast payload
-        # payload = []
-        # for row in rows:
-        #     print("employeeDataInput rowID: ", row.id)
-        #     print("row.data: ", row.data)
-        #     emp = row.employee
-        #     full_name = " ".join(filter(None, [emp.first_name, emp.middle_name, emp.last_name]))
-        #     user_rec  = user_map.get(emp.email)
-        #     role_name = user_rec.role.name if user_rec and user_rec.role else "N/A"
-        #     attachments = extract_attachments(row.data or {})
-
-        #     payload.append({
-        #         "id": str(row.id),
-        #         "Account Name": full_name,
-        #         "Role":         role_name,
-        #         "Data": row.data,
-        #         "Issues":       "Request Approval",
-        #         "Attachments":  attachments,
-        #         "Actions":      "Pending"
-        #     })
-
-        # await manager.broadcast(organization_id, json.dumps(payload))
-
         # 6) Keep-alive ping loop
         while True:
             await websocket.receive_text()
@@ -520,6 +294,8 @@ async def on_startup():
     Example: Initializing a temporary database, loading configurations, etc.
     """,
     try:
+        # Run pending migrations
+        await asyncio.to_thread(run_migrations)
         # Initialize database schema
         temp_db()
 

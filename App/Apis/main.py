@@ -26,7 +26,7 @@ from Schemas.schemas import (OrganizationCreateSchema, OrganizationSchema,
 
                             
                             RoleCreateSchema,
-                         RoleSchema, UserCreateSchema, UserSchema, TenancyCreateSchema,
+                         RoleSchema, StaffOption, UserCreateSchema, UserSchema, TenancyCreateSchema,
                          TenancySchema, TermsAndConditionsSchema, BillSchema,
                          PaymentSchema, EmployeeCreateSchema, EmployeeSchema,
                          AcademicQualificationCreateSchema, AcademicQualificationSchema,
@@ -47,6 +47,7 @@ from Utils.file_handler import get_gcs_client
 from Utils.serialize_4_json import serialize_for_json
 from Utils.storage_utils import get_storage_service
 from Utils.sms_utils import get_sms_service
+from Utils.security import Security
 
 
 
@@ -55,6 +56,9 @@ from Utils.sms_utils import get_sms_service
 app = APIRouter()
 
 config = ProductionConfig()  # Load the development configuration
+
+
+security = Security(config.SECRET_KEY, config.ALGORITHM, config.ACCESS_TOKEN_EXPIRE_MINUTES)
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -80,6 +84,87 @@ system_setting_crud = CRUDBase(SystemSetting)
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+
+# app/api/departments.py
+
+
+# router = APIRouter(
+#     prefix="/organizations/{org_id}/departments",
+#     tags=["departments"],
+# )
+
+
+@app.get(
+    "/{org_id}/departments/{dept_id}/head",
+    response_model=StaffOption,
+    summary="Get Head‑of‑Department basic info",
+    responses={
+        403: {"description": "Forbidden – user not in this org"},
+        404: {"description": "Dept not found or has no head assigned"},
+    },
+)
+def get_department_head(
+    org_id: UUID,
+    dept_id: UUID,
+    db: Session = Depends(get_db),
+    current_user=Depends(security.get_current_user),
+):
+    # — Authorization
+    if current_user.organization_id != org_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission for this organization.",
+        )
+
+    # — Fetch Department & ensure it belongs to this org
+    dept = (
+        db.query(Department)
+        .filter(
+            Department.id == dept_id,
+            Department.organization_id == org_id,
+        )
+        .first()
+    )
+    if not dept or not dept.department_head_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Department not found or no head assigned.",
+        )
+
+    # — Fetch Employee (only the fields we need)
+    emp: Optional[Employee] = (
+        db.query(
+            Employee.id,
+            Employee.title,
+            Employee.first_name,
+            Employee.middle_name,
+            Employee.last_name,
+        )
+        .filter(
+            Employee.id == dept.department_head_id,
+            Employee.organization_id == org_id,
+            Employee.is_active == True,
+        )
+        .first()
+    )
+    if not emp:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Head‑of‑department record not found or inactive.",
+        )
+
+    # — Respond using StaffOption schema
+    return StaffOption(
+        id=emp.id,
+        title=emp.title,
+        first_name=emp.first_name,
+        middle_name=emp.middle_name,
+        last_name=emp.last_name,
+    )
+
+
 
 
 @app.get("/slug/{slug}")
