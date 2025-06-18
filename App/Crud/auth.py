@@ -206,7 +206,7 @@ async def authenticate_user(
     
     
     # 3) Expire old tokens before concurrency check
-    expire_old_tokens(db, user.id, user.organization_id)
+    # expire_old_tokens(db, user.id, user.organization_id)
     
     # 5. Prevent concurrent logins.
     existing_token = db.query(Token).filter(
