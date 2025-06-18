@@ -26,3 +26,4 @@ def upgrade():
 
 def downgrade():
     op.drop_index('ix_tokens_user_org', table_name='tokens')
+ 
