@@ -70,8 +70,8 @@ class RateLimiter:
         user_id = str(user.id)
 
         # Initialize org in dict if not exists
-        # if org_id not in self.failed_attempts:
-        #     self.failed_attempts[org_id][user_id] = defaultdict(list)
+        if org_id not in self.failed_attempts:
+            self.failed_attempts[org_id][user_id] = defaultdict(list)
 
         # Remove expired attempts (older than `period` seconds)
         self.failed_attempts[org_id][user_id] = [
@@ -106,7 +106,7 @@ class RateLimiter:
         """
         org_id = str(user.organization_id)
         user_id = str(user.id)
-        self.failed[org_id][user_id] = []
+        # self.failed[org_id][user_id] = []
 
-        # if org_id in self.failed_attempts and user_id in self.failed_attempts[org_id]:
-        #     self.failed_attempts[org_id][user_id] = []
+        if org_id in self.failed_attempts and user_id in self.failed_attempts[user_id]:
+            self.failed_attempts[org_id][user_id] = []
