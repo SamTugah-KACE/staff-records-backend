@@ -247,8 +247,18 @@ class Token(BaseModel):
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     token = Column(String, nullable=False)
     expiration_period = Column(DateTime, nullable=False)
+    is_active = Column(Boolean, nullable=False, index=True, default=True)
     login_option = Column(String, nullable=False)
     last_activity = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        Index(
+            'uq_tokens_user_org_active',
+            'user_id', 'organization_id',
+            unique=True,
+            postgresql_where=expiration_period > datetime.utcnow()
+        ),
+    )
 
 class EmployeeType(BaseModel):
     __tablename__ = "employee_types"

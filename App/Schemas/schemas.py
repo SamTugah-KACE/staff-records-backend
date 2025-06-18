@@ -137,6 +137,30 @@ class OrganizationSchema(BaseSchema):
     class Config:
         from_attributes = True  # Enable ORM object compatibility
 
+# in Schemas.schemas.py near OrganizationSchema
+
+class OrganizationUpdateSchema(BaseModel):
+    name: Optional[str]
+    org_email: Optional[EmailStr]
+    country: Optional[str]
+    type: Optional[str]
+    nature: Optional[str]
+    employee_range: Optional[str]
+    access_url: Optional[str]
+    subscription_plan: Optional[str]
+    logos: Optional[Dict[str, Any]]
+    is_active: Optional[bool]
+
+    @field_validator("type")
+    def validate_type(cls, value):
+        if value and value not in ["Private", "Government", "Public", "NGO"]:
+            raise ValueError("Invalid organization type")
+        return value
+
+    class Config:
+        from_attributes = True
+
+
 # Role Schemas
 class RoleCreateSchema(BaseModel):
     name: str

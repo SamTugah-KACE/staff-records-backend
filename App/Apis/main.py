@@ -88,14 +88,6 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 
-# app/api/departments.py
-
-
-# router = APIRouter(
-#     prefix="/organizations/{org_id}/departments",
-#     tags=["departments"],
-# )
-
 
 @app.get(
     "/{org_id}/departments/{dept_id}/head",

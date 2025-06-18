@@ -102,7 +102,22 @@ async def authenticate_facial(username: str, image: UploadFile) -> bool:
             status_code=504,
             detail="Facial authentication API request timed out."
         )
-    
+
+# ------------------------------------------------------------------------------
+# 2) Helper: expire_old_tokens
+# ------------------------------------------------------------------------------
+def expire_old_tokens(db: Session, user_id: UUID, org_id: UUID) -> None:
+    """
+    Remove all tokens for this user/org whose expiration_period has passed.
+    Call this BEFORE you check for concurrent logins.
+    """
+    now = datetime.utcnow()
+    db.query(Token).filter(
+        Token.user_id == user_id,
+        Token.organization_id == org_id,
+        Token.expiration_period <= now,
+    ).delete(synchronize_session="fetch")
+    db.commit()
 
 
 # ==============================
@@ -130,7 +145,7 @@ async def authenticate_user(
     - On successful login, generate a token, store it in the Token model, update last_login, and return user data
       along with the organization's dashboard access URL.
     """
-
+    now = datetime.utcnow()
     # Retrieve client IP and User-Agent
     client_ip = request.client.host
     user_agent = request.headers.get('user-agent', 'unknown')
@@ -146,6 +161,8 @@ async def authenticate_user(
     # 2. Enforce multi-tenancy: (you might later also verify organization is active)
     Organization.check_organization_active(user.organization_id, db)
 
+    if user.is_active == False:
+        raise HTTPException(status_code=400, detail="User not allowed to log-in due to the account been inactive.")
     
     # 3. Determine login option:
     login_option = None
@@ -188,12 +205,14 @@ async def authenticate_user(
         login_option = "password"
     
     
+    # 3) Expire old tokens before concurrency check
+    expire_old_tokens(db, user.id, user.organization_id)
     
     # 5. Prevent concurrent logins.
     existing_token = db.query(Token).filter(
         Token.user_id == user.id,
         Token.organization_id == user.organization_id,
-        Token.expiration_period > datetime.datetime.utcnow()
+        Token.expiration_period > now
     ).first()
 
     if existing_token:
@@ -217,6 +236,11 @@ async def authenticate_user(
         
         service = EmailService()
         await service.send_email(background_task, recipients=[user.email], subject=subject, html_body=message)
+
+        background_task.add_task(
+            EmailService.send_html, [user.email], subject, message
+        )
+
         logger.warning(f"Concurrent login attempt detected for username: {username} from IP: {client_ip}")
         raise HTTPException(status_code=403, detail="User already logged in on another device. Please logout first.")
     
@@ -240,7 +264,7 @@ async def authenticate_user(
     token_str =  global_security.generate_token(data=token_payload, expires_in=28800)
     # Set token expiration to 1 hour from now.
     token_expiration_dt = datetime.datetime.utcnow() + datetime.timedelta(seconds=28800)
-    token_expiration = token_expiration_dt.strftime("%a, %d %b %Y %H:%M:%S GMT")  # Token valid for 1 hour
+    token_expiration = token_expiration_dt.strftime("%a, %d %b %Y %H:%M:%S GMT")  # Token valid for 8 hours
     # token_expiration = (datetime.datetime.utcnow() + datetime.timedelta(seconds=3600)).strftime("%a, %d %b %Y %H:%M:%S GMT")  # Token valid for 1 hour
 
     print("\nGenerated token: ", token_str)

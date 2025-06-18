@@ -29,10 +29,23 @@ conf = ConnectionConfig(
     VALIDATE_CERTS=settings.VALIDATE_CERTS
 )
 
+mailer = FastMail(conf)
+
 # Define the email service
 class EmailService:
     def __init__(self):
         self.mail = FastMail(conf)
+
+    
+    @staticmethod
+    async def send_html(recipients: list[str], subject: str, html_body: str):
+        message = MessageSchema(
+            subject=subject,
+            recipients=recipients,
+            body=html_body,
+            subtype="html"
+        )
+        await mailer.send_message(message)
 
     
     # Utility functions
