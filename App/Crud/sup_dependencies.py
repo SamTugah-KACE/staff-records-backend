@@ -9,7 +9,7 @@ from database.db_session import get_async_db
 from Models.superadmin import SuperAdmin
 from Utils.sup_security import decode_jwt
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/superadmin/auth/token")
 
 settings = ProductionConfig()
 
