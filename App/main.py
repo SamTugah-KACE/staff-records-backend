@@ -295,7 +295,7 @@ async def on_startup():
     """,
     try:
         # Run pending migrations
-        await asyncio.to_thread(run_migrations)
+        # await asyncio.to_thread(run_migrations)
         # Initialize database schema
         temp_db()
 

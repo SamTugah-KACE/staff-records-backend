@@ -99,6 +99,8 @@ async def login_for_tokens(
     await db.commit()
 
     # 3) set cookie
+    # set cookie with max_age instead of naive expires
+    max_age = settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 3600
     response.set_cookie(
         settings.COOKIE_NAME,
         refresh_token,
@@ -106,7 +108,8 @@ async def login_for_tokens(
         httponly=settings.COOKIE_HTTPONLY,
         samesite=settings.COOKIE_SAMESITE,
         path=settings.COOKIE_PATH,
-        expires=expires,
+        max_age=max_age
+        # expires=expires,
     )
 
     return {"access_token": access_token, "token_type": "bearer"}
