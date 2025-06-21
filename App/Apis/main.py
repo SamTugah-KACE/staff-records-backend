@@ -633,11 +633,25 @@ async def create_organization(
     plain_password = generate_random_string(6)
     hashed_pw = hash_password(plain_password)
 
+    # 1) Extract title + clean name
+    m = TITLE_PATTERN.match(contact_person.strip())
+    if m:
+        title = m.group(1).strip()
+        name_body = contact_person[m.end():].strip()
+    else:
+        title = ""
+        name_body = contact_person.strip()
+
+    parts = name_body.split()
+    first_name = parts[0]
+    middle_name = " ".join(parts[1:-1]) if len(parts) > 2 else ""
+    last_name = parts[-1] if len(parts) > 1 else ""
+
     new_emp = Employee(
-        title="Mr." if ("Mr" or "Mr.") in contact_person else "Ms.",
-        first_name=contact_person.split()[0],
-        middle_name=" ".join(contact_person.split()[1:-1]) if len(contact_person.split()) > 2 else "",
-        last_name=contact_person.split()[-1],
+        title=title,
+        first_name=first_name,
+        middle_name=middle_name,  #" ".join(contact_person.split()[1:-1]) if len(contact_person.split()) > 2 else "",
+        last_name=last_name,
         date_of_birth=None,  # Optional, can be added later
         email=contact_email,
         contact_info={"phone": phone_number},
@@ -654,18 +668,7 @@ async def create_organization(
     db.refresh(new_emp)
 
     
-    # 1) Extract title + clean name
-    m = TITLE_PATTERN.match(contact_person.strip())
-    if m:
-        title = m.group(1).strip()
-        name_body = contact_person[m.end():].strip()
-    else:
-        title = ""
-        name_body = contact_person.strip()
-
-    parts = name_body.split()
-    first_name = parts[0]
-    last_name = parts[-1] if len(parts) > 1 else ""
+    
 
     row_data = {
         "title":title,
