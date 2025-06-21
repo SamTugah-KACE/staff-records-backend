@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from fastapi import BackgroundTasks
 from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
@@ -11,9 +12,9 @@ from Utils.email_utils import parse_html_from_template
 from Utils.config import *
 import string
 import random
+from tenacity import retry, stop_after_attempt, wait_exponential
 
-
-settings = DevelopmentConfig()
+settings = ProductionConfig()
 
 
 # Email configuration (using environment variables for security)
@@ -30,11 +31,33 @@ conf = ConnectionConfig(
 )
 
 mailer = FastMail(conf)
+logger = logging.getLogger("email_service")
 
 # Define the email service
 class EmailService:
     def __init__(self):
         self.mail = FastMail(conf)
+
+    
+    @staticmethod
+    @retry(
+        stop=stop_after_attempt(settings.EMAIL_RETRY_ATTEMPTS),
+        # either exponential back‑off…
+        wait=wait_exponential(
+            multiplier=settings.EMAIL_RETRY_DELAY,
+            min=settings.EMAIL_RETRY_DELAY,
+            max=settings.EMAIL_RETRY_DELAY * 10,
+        ),
+        # …or, if you want a fixed pause between retries, use:
+        # wait=wait_fixed(settings.EMAIL_RETRY_DELAY),
+        reraise=True,
+    )
+    async def _actually_send(message: MessageSchema):
+        """
+        Retry‑wrapped actual send.
+        Internal helper: retries on failure according to config.
+        """
+        await mailer.send_message(message)
 
     
     @staticmethod
@@ -60,18 +83,7 @@ class EmailService:
         print("\nGenerated Password: ", ''.join(random.choice(characters) for _ in range(length)))
         return ''.join(random.choice(characters) for _ in range(length))
     
-    # # Define the email template
-    # def get_email_template( username: str, password: str, href: str, organization:str=None) -> str:
-    #     if organization is None:
-    #         organization = "GI-KACE"
-    #     return f"""
-    #     <h2>{organization} Staff Records System</h2>
-    #     <p>Your account has been created successfully. Below are your login credentials:</p>
-    #     <p><strong>Username:</strong> {username}</p>
-    #     <p><strong>Password:</strong> {password}</p>
-    #     <p>Please change your password after logging in for the first time using the link: <a href='{href}'>Login</a></p>
-    #     """
-
+    
     def account_emergency() -> str:
         return """
         <h2>GI-KACE Staff Records System</h2>
@@ -124,7 +136,18 @@ class EmailService:
         )
 
         # Send the email asynchronously
-        background_tasks.add_task(self.mail.send_message, message)
+        # background_tasks.add_task(self.mail.send_message, message)
+        # schedule the retry‑wrapped send in background
+        background_tasks.add_task(self._send_with_logging, message)
+
+    async def _send_with_logging(self, message: MessageSchema):
+        try:
+            await self._actually_send(message)
+            logger.info("Email sent ✓ to %s", message.recipients)
+            logger.info("Email sent to %s: %s", message.recipients, message.subject)
+        except Exception as exc:
+            # Log full traceback—but don’t re‑raise, so it won’t crash the request.
+            logger.error("Failed to send email to %s: %s", message.recipients, exc, exc_info=True)
 
     async def send_plain_text_email(self, background_tasks: BackgroundTasks, recipients: List[EmailStr], subject: str, body: str):
         await self.send_email(background_tasks, recipients, subject, body=body)
@@ -197,7 +220,7 @@ def build_account_email_html(row_data: dict,  logo_url: str, login_href: str, pw
         </div>
         <div style="padding:20px;">
             <h2>{org_acronym} Staff Records System</h2>
-            <p>Dear {title} {first_name} {last_name},</p>
+            <p>Dear {title} {first_name},</p>
             <p>Your account has been created successfully. 
             <br/>Your username is <strong>{email}</strong>.
             <br/>Your Password is <strong>{pwd}</strong>

@@ -13,7 +13,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import smtplib
 import logging
-from Service.email_service import build_account_email_html
+from Service.email_service import build_account_email_html, EmailService
 from Service.gcs_service import GoogleCloudStorage
 from Utils.config import DevelopmentConfig, get_config
 from email_service import *
@@ -30,7 +30,7 @@ from Utils.sms_utils import get_sms_service
 
 
 
-settings = DevelopmentConfig()
+settings = ProductionConfig()
 
 
 # Initialize the global Security instance.

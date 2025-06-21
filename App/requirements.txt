@@ -40,5 +40,7 @@ openpyxl
 websockets
 reportlab
 PyPDF2
+tenacity>=8.2.0
+
 # apscheduler-redis
 # git+https://github.com/agronholm/apscheduler_redis_jobstore.git#egg=apscheduler_redis_jobstore

@@ -1,4 +1,5 @@
 from datetime import date, datetime
+import re
 from passlib.context import CryptContext
 import secrets
 from dateutil.relativedelta import relativedelta
@@ -8,8 +9,9 @@ from sqlalchemy.orm import Session
 from uuid import UUID 
 from typing import Dict, List, Optional
 from Crud.auth import get_current_user_for_others
-from Service.bulk_insert_service import build_account_email_html
-from email_service import EmailService
+from Service.email_service import EmailService, build_account_email_html
+# from email_service import EmailService
+# from 
 from Service.storage_service import BaseStorage
 from database.db_session import get_db  # Your database session dependency
 from Crud.crud import CRUDBase  # Generic CRUD class
@@ -49,7 +51,7 @@ from Utils.serialize_4_json import serialize_for_json
 from Utils.storage_utils import get_storage_service
 from Utils.sms_utils import get_sms_service
 from Utils.security import Security
-
+from fastapi_mail.errors import ConnectionErrors
 
 
 
@@ -60,6 +62,9 @@ config = ProductionConfig()  # Load the development configuration
 
 
 security = Security(config.SECRET_KEY, config.ALGORITHM, config.ACCESS_TOKEN_EXPIRE_MINUTES)
+
+
+TITLE_PATTERN = re.compile(r'^(Prof\.|Dr\.|Mr\.|Mrs\.|Ms\.|PhD\.|Ing\.|Rev\.)\s+', re.IGNORECASE)
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -648,36 +653,28 @@ async def create_organization(
     db.commit()
     db.refresh(new_emp)
 
-    # new_user = User(
-    #     username=username,
-    #     email=contact_email,
-    #     hashed_password=hashed_pw,
-    #     role_id=admin_role.id,
-    #     organization_id=new_org.id,
-    #     is_active=True,
-    # )
-    # db.add(new_user)
-    # db.commit()
-    # db.refresh(new_user)
+    
+    # 1) Extract title + clean name
+    m = TITLE_PATTERN.match(contact_person.strip())
+    if m:
+        title = m.group(1).strip()
+        name_body = contact_person[m.end():].strip()
+    else:
+        title = ""
+        name_body = contact_person.strip()
 
-    # # Send email with credentials
-    # email_subject = "Your Organization Admin Account Created"
-    # email_body = (
-    #     f"Hello {contact_person},\n\n"
-    #     f"Your organization '{organization_name}' has been successfully registered. "
-    #     f"Here are your admin credentials:\n"
-    #     f"Username: {username}\n"
-    #     f"Password: {plain_password}\n\n"
-    #     f"Please change your password after first login.\n\n"
-    #     f"Regards,\n"
-    #     f"Support Team"
-    # )
+    parts = name_body.split()
+    first_name = parts[0]
+    last_name = parts[-1] if len(parts) > 1 else ""
 
     row_data = {
-        "first_name": contact_person.split()[0],
-        "last_name": contact_person.split()[-1] if len(contact_person.split()) > 1 else "",
+        "title":title,
+        "first_name": first_name,
+        "last_name": last_name,
         "email": contact_email,
+        "org_name": organization_name.strip(),
     }
+   
 
     try:
         # Use the first logo if multiple logos are provided
@@ -709,12 +706,16 @@ async def create_organization(
         
         email_service = EmailService()  # Instantiate the email service
                     # Send email with credentials
-        email_body = build_account_email_html(row_data=row_data, org_acronym=get_organization_acronym(organization_name), logo_url=extract_items(logo), login_href=domain+"/signin", pwd=plain_password)
+        email_body = build_account_email_html(row_data=row_data,  logo_url=extract_items(logo), login_href=domain+"/signin", pwd=plain_password)
                     # email_body = get_email_template(username, password, signin_page, obj_data['name'] )
         await email_service.send_email(background_tasks, recipients=[contact_email], subject="Account Credentials", html_body=email_body)
-    except Exception as e:
-        # Log the email failure, but do not rollback organization creation
-        print(f"Failed to send email: {e}")
+    except ConnectionErrors as conn_exc:
+        # extremely unlikely, since send_email just schedules a task,
+        # but you could handle missing config here if you want.
+        raise HTTPException(
+            status_code=500,
+            detail="Organization created, but email service not configured."
+        ) from conn_exc
 
     return new_org
 
