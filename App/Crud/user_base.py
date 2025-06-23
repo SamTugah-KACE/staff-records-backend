@@ -5,6 +5,7 @@ import string
 from fastapi import HTTPException, Depends, BackgroundTasks, UploadFile, HTTPException
 from fastapi.responses import FileResponse
 import requests
+from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 from typing import Optional, Dict, List
@@ -1672,7 +1673,9 @@ class UserCRUD:
         if department_value:
             department_value = department_value.strip()
             department_obj = db.query(Department).filter(
-                Department.name.ilike(department_value) or Department.id == department_value,
+                or_(Department.name.ilike(department_value),
+                Department.id == department_value
+                ),
                 Department.organization_id == organization_id
             ).first()
             if department_obj:
