@@ -214,6 +214,7 @@ def get_organization_acronym_(org_name: str, stopwords: Optional[Set[str]] = Non
 
 
 
+
 from typing import Optional, Set
 
 DEFAULT_STOPWORDS = {"of", "the", "and", "for", "in", "at", "by", "a", "an"}
@@ -308,6 +309,112 @@ def _make_acronym(tokens: list[str], stopwords: Set[str], max_secondary: int) ->
 
 
 
+def get_organization_acronym2(
+    org_name: str,
+    *,
+    stopwords: Optional[Set[str]] = None,
+    max_original_length: int = 10,
+    max_original_tokens: int = 2,
+    max_acronym_secondary: int = 4,
+    max_display_length: int = 10,
+) -> str:
+    """
+    Return a user-friendly label for an organization name:
+      - If the name is a single “short” word (<= max_original_length chars),
+        returns it title-cased (e.g. "pixar" -> "Pixar").
+      - If the name is 2 words or fewer (<= max_original_tokens) and its total
+        length is <= max_original_length * max_original_tokens,
+        returns title-cased original, truncated with '...' if it exceeds max_display_length.
+      - Otherwise, generates an acronym, including the first secondary token (even if a stopword)
+        and then up to max_acronym_secondary-1 additional non-stopword tokens, preserving hyphenation
+        in the first token.
+
+    Args:
+        org_name: Raw organization name.
+        stopwords: Words to ignore in longer secondary positions (default: common small words).
+        max_original_length: Max chars for a “short” single word.
+        max_original_tokens: Max words for displaying full title.
+        max_acronym_secondary: Max tokens for acronym beyond the first.
+        max_display_length: Max length for displaying full title before truncation.
+
+    Returns:
+        A cleaned title or an acronym (all in ASCII letters).
+    """
+    if not isinstance(org_name, str) or not org_name.strip():
+        raise ValueError("Organization name must be a nonempty string.")
+
+    stopwords = stopwords or DEFAULT_STOPWORDS
+
+    # Normalize whitespace and extract tokens (preserving hyphens)
+    tokens = re.findall(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*", org_name.strip())
+    if not tokens:
+        raise ValueError("Organization name must contain alphanumeric characters.")
+    joined = org_name.strip()
+    total_length = len(joined)
+
+    # 1) Short single word → Title-case and truncate
+    if len(tokens) == 1 and len(tokens[0]) <= max_original_length:
+        single = tokens[0].capitalize()
+        return _truncate_if_needed(single, max_display_length)
+
+    # 2) Very short multi-word name → Title-case full name and truncate
+    if len(tokens) <= max_original_tokens and total_length <= max_original_length * max_original_tokens:
+        titled = " ".join(tok.capitalize() for tok in tokens)
+        return _truncate_if_needed(titled, max_display_length)
+
+    # 3) Fallback to acronym
+    return _make_acronym(tokens, stopwords, max_acronym_secondary)
+
+
+def _truncate_if_needed(text: str, max_len: int) -> str:
+    """
+    Truncate text to max_len and append '...' if it exceeds.
+    """
+    if max_len and len(text) > max_len:
+        return text[:max_len] + '...'
+    return text
+
+
+def _make_acronym(tokens: List[str], stopwords: Set[str], max_secondary: int) -> str:
+    """
+    Build an acronym from token list:
+      - Take first letter(s) of the first token (handle hyphens as multiple letters).
+      - For secondary tokens: always include the first secondary (index 1) lowercase if stopword,
+        then include up to max_secondary-1 additional uppercase letters from non-stopword tokens.
+      - If the first token was hyphenated, insert a hyphen between primary and secondary block.
+    """
+    # Primary (handle hyphenation)
+    first = tokens[0]
+    if '-' in first:
+        sub_pieces = [part for part in first.split('-') if part]
+        primary = ''.join(piece[0].upper() for piece in sub_pieces)
+        hyphenated = True
+    else:
+        primary = first[0].upper()
+        hyphenated = False
+
+    # Secondary: include first secondary token always, then non-stopwords
+    secondary_letters = []
+    # If there's at least one secondary token:
+    if len(tokens) > 1:
+        sec = tokens[1].strip(' ,.;:-')
+        if sec:
+            # lowercase if stopword, else uppercase
+            secondary_letters.append(sec[0].lower() if sec.lower() in stopwords else sec[0].upper())
+    # Now fill with non-stopwords up to max_secondary
+    for tok in tokens[2:]:
+        if len(secondary_letters) >= max_secondary:
+            break
+        clean = tok.strip(' ,.;:-')
+        if not clean or clean.lower() in stopwords:
+            continue
+        secondary_letters.append(clean[0].upper())
+
+    if not secondary_letters:
+        return primary
+
+    secondary = ''.join(secondary_letters)
+    return f"{primary}-{secondary}" if hyphenated else primary + secondary
 
 
 
