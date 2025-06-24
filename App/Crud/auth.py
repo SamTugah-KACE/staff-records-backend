@@ -400,7 +400,7 @@ async def get_current_user(
     last_activity_ts = token_data.get("last_activity")
     if last_activity_ts:
         inactivity = datetime.datetime.utcnow() - datetime.datetime.fromtimestamp(last_activity_ts)
-        if inactivity > datetime.timedelta(minutes=60):  # 60 minutes of inactivity
+        if inactivity > datetime.timedelta(minutes=180):  # 60 minutes of inactivity
             # Log out the user by deleting the token.
             db.query(Token).filter(Token.token == token_str).delete()
             db.commit()

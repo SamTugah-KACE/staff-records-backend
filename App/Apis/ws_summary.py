@@ -1,5 +1,6 @@
 import asyncio
 from fastapi import Depends, Query, WebSocket, WebSocketDisconnect, APIRouter, status
+from fastapi.websockets import WebSocketState
 from sqlalchemy.orm import Session
 from Models.Tenants.organization import Organization
 from database.db_session import get_db
@@ -76,10 +77,32 @@ async def websocket_summary(
         await websocket.send_json(message)
         print("✅ sent initial payload")
 
+        # now enter a “heartbeat+ping” loop
         try:
             while True:
                 # await asyncio.sleep(3600)
-                await websocket.receive_text()
+                # await websocket.receive_text()
+                # 1️⃣ wait up to, say, 60 seconds for a client ping (optional)
+                try:
+                    await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
+                    # if you want, you can respond to pings here
+                except asyncio.TimeoutError:
+                    # no ping — but that’s okay, we just wanted to wake up periodically
+                    pass
+
+                # 2️⃣ re-validate token
+                if not await global_security.is_ws_token_valid(token):
+                    # let the client know why we’re closing
+                    if websocket.client_state != WebSocketState.CLOSED:
+                        # await websocket.send_json({"type":"error", "reason":"token_expired"})
+                        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                    break
+
+                # 3️⃣ (optional) send an update every X seconds
+                # payload = await _build_summary_payload(db, org_uuid)
+                # await websocket.send_json({"type":"update", "payload": payload})
+
+            # end of loop
         except WebSocketDisconnect:
             pass
         finally:

@@ -13,6 +13,7 @@ from database.db_session import get_db
 
 
 
+
 # Offload blocking operations to a threadpool in an async context.
 from starlette.concurrency import run_in_threadpool
 
@@ -227,3 +228,37 @@ class Security:
         except JWTError as e:
             logger.error(f"JWT decoding error: {e}")
             return None
+
+    async def is_token_valid(self, token_str: str) -> bool:
+        try:
+            # offload to threadpool, but don’t raise on ExpiredSignatureError
+            await run_in_threadpool(jwt.decode, token_str, self.secret_key, [self.algorithm])
+            return True
+        except ExpiredSignatureError:
+            print(f"\nis_token_valid returned with: {ExpiredSignatureError}")
+            return False
+        except JWTError:
+            print(f"is_token_valid returned with: {JWTError}")
+            return False
+        
+    
+    async def is_ws_token_valid(self, token_str: str, db: Session) -> bool:
+        """
+        1) Decode JWT (catches ExpiredSignatureError).
+        2) Verify a matching Token row still exists & expiration_period > now.
+        """
+        try:
+            # offload to threadpool but swallow ExpiredSignatureError:
+            payload = await run_in_threadpool(jwt.decode, token_str, self.secret_key, [self.algorithm])
+            print(f"\nwell token payload is still live:: {payload}")
+        except (ExpiredSignatureError, JWTError):
+            return False
+
+        # check DB record
+        tok = db.query(models.Token).filter(models.Token.token == token_str).first()
+        print(f"\ntoken expiration period::  {tok.expiration_period} \t\t time now {datetime.utcnow()}")
+        
+        if not tok or tok.expiration_period < datetime.utcnow():
+            return False
+
+        return True
