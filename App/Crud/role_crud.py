@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from Apis.summary import push_summary_update
 from Models.Tenants.role import Role
 from uuid import UUID
+from sqlalchemy.exc import IntegrityError
 
 def create_role(db: Session, obj_in, user_id: Optional[UUID] = None) -> Role:
     """
@@ -43,8 +44,13 @@ def create_role(db: Session, obj_in, user_id: Optional[UUID] = None) -> Role:
         asyncio.create_task(push_summary_update(db, role_data.get("organization_id")))
         return new_role
 
-    except Exception as e:
+    except IntegrityError as e:
         db.rollback()
+        raise e
+    except Exception as e:
+        raise e
+    except Exception as e:
+        # db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     
 

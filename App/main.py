@@ -316,14 +316,21 @@ async def ws_employee_inputs(
 async def http_exception_handler(request, exc):
     return JSONResponse(
         status_code=exc.status_code,
-        content={"error": exc.detail},
+        content={
+             "message": exc.detail,
+                 "error": exc.detail,
+        },
     )
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
+    logger.exception("Unhandled server error")
     return JSONResponse(
         status_code=500,
-        content={"error": "An unexpected error occurred. Please try again later."},
+        content={ 
+                 "message": exc.detail,
+                 "error": exc.detail,
+                 },
     )
 
 # Startup Event

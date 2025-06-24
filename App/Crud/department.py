@@ -64,7 +64,9 @@ def create_department(organization_id:uuid.UUID, db: Session, dept_in: Departmen
             raise HTTPException(400, "That staff[HoD] is already assigned to another Department.")
         # fallback
         raise HTTPException(400, "Could not create department.\n", msg)
-
+    except HTTPException:
+        # Re-raise any HTTPExceptions you threw yourself above
+        raise
     except Exception as e:
         print("\n\nerror creating department: ",e)
         raise HTTPException(status_code=500, detail=f"error occurred while creating department '{dept_in.name}':\n {str(e)}")
