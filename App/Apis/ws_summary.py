@@ -91,7 +91,7 @@ async def websocket_summary(
                     pass
 
                 # 2️⃣ re-validate token
-                if not await global_security.is_ws_token_valid(token):
+                if not await global_security.is_ws_token_valid(token, db):
                     # let the client know why we’re closing
                     if websocket.client_state != WebSocketState.CLOSED:
                         # await websocket.send_json({"type":"error", "reason":"token_expired"})
