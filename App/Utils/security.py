@@ -256,7 +256,8 @@ class Security:
 
         # check DB record
         tok = db.query(models.Token).filter(models.Token.token == token_str).first()
-        print(f"\ntoken expiration period::  {tok.expiration_period} \t\t time now {datetime.utcnow()}")
+
+        print(f"\ntoken expiration period::  {tok.expiration_period if tok else tok} \t\t time now {datetime.utcnow()}")
         
         if not tok or tok.expiration_period < datetime.utcnow():
             return False
