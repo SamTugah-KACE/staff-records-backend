@@ -220,7 +220,7 @@ from typing import Optional, Set
 DEFAULT_STOPWORDS = {"of", "the", "and", "for", "in", "at", "by", "a", "an"}
 
 
-def get_organization_acronym(
+def get_organization_acronym2(
     org_name: str,
     *,
     stopwords: Optional[Set[str]] = None,
@@ -309,7 +309,7 @@ def _make_acronym(tokens: list[str], stopwords: Set[str], max_secondary: int) ->
 
 
 
-def get_organization_acronym2(
+def get_organization_acronym(
     org_name: str,
     *,
     stopwords: Optional[Set[str]] = None,
