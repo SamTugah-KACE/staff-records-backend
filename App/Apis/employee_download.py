@@ -450,6 +450,7 @@ def _draw_letterhead(
         url = _extract_url_from_field(lp)
         img = _download_image(url) if url else None
         if img:
+        
             imgs.append(img)
 
     # 3) Draw left logo
@@ -538,7 +539,7 @@ def _draw_page_watermark_and_footer(
                       x=(page_width-size)/2, y=(page_height-size)/2,
                       width=size, height=size,
                       preserveAspectRatio=True, mask="auto")
-    pdf.setFont("Helvetica-Bold", 36)
+    pdf.setFont("Helvetica-Bold", 12)
     pdf.setFillColor(colors.grey)
     pdf.drawCentredString(page_width/2, page_height/2 - 40, wm_text)
     pdf.restoreState()
