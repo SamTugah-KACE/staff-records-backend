@@ -1,5 +1,6 @@
 # app/routers/employee_download.py
 
+from datetime import datetime
 import io
 import os
 import json
@@ -18,6 +19,7 @@ from reportlab.pdfgen import canvas
 from reportlab.platypus import Table, TableStyle, Paragraph
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.utils import ImageReader
 
 # PyPDF2 for merging PDFs
@@ -43,8 +45,13 @@ from Models.models import (
 )
 from Models.Tenants.role import Role 
 from Models.Tenants.organization import Organization, Branch, Rank
+from functools import lru_cache
+
 
 router = APIRouter()
+
+
+
 
 
 def _download_image(path_or_url: str) -> Optional[ImageReader]:
@@ -63,6 +70,15 @@ def _download_image(path_or_url: str) -> Optional[ImageReader]:
     except Exception:
         pass
     return None
+
+@lru_cache(maxsize=128)
+def _get_profile_image(path_or_url: str, target_size_mm: float = 30) -> Optional[ImageReader]:
+    """
+    Download (or load) the profile image and return an ImageReader
+    scaled to target_size_mm (in mm). Caching avoids re-fetch on retries.
+    """
+    reader = _download_image(path_or_url)
+    return reader  # drawImage will handle sizing
 
 
 def _download_pdf_bytes(path_or_url: str) -> Optional[bytes]:
@@ -204,6 +220,20 @@ def _calculate_column_widths(
     return [max(2 * cm, raw_widths[i] * scale) for i in range(col_count)]
 
 
+def _apply_watermark(pdf: canvas.Canvas, text: str, page_width: float, page_height: float):
+    pdf.saveState()
+    pdf.translate(page_width/2, page_height/2)
+    pdf.rotate(45)
+    pdf.setFont("Helvetica-Bold", 50)
+    try:
+        pdf.setFillAlpha(0.1)
+    except Exception:
+        pass
+    pdf.setFillColor(colors.grey)
+    pdf.drawCentredString(0, 0, text)
+    pdf.restoreState()
+
+    
 def _ensure_section_space(pdf: canvas.Canvas, current_y: float, needed_height: float) -> float:
     """
     If there isn't enough vertical space (current_y < needed_height + bottom_margin),
@@ -217,6 +247,319 @@ def _ensure_section_space(pdf: canvas.Canvas, current_y: float, needed_height: f
         return new_y
     return current_y
 
+def _maybe_draw_watermark(pdf: canvas.Canvas, org: Organization, page_width: float, page_height: float):
+    """
+    If the org is government/public, draw 'Government of {Country}' diagonally.
+    """
+    typ = (org.type or "").lower()
+    if typ in {"government", "public"} and getattr(org, "country", None):
+        text = f"Government of {org.country}"
+        pdf.saveState()
+        pdf.setFont("Helvetica-Bold", 60)
+        pdf.setFillColorRGB(0.7, 0.7, 0.7, alpha=0.1)
+        # rotate about center
+        pdf.translate(page_width/2, page_height/2)
+        pdf.rotate(45)
+        w = pdf.stringWidth(text, "Helvetica-Bold", 60)
+        pdf.drawCentredString(0, 0, text)
+        pdf.restoreState()
+
+# def _show_page_with_watermark(pdf: canvas.Canvas, org: Organization):
+#     pdf.showPage()
+#     _maybe_draw_watermark(pdf, org, *A4)
+
+# def _draw_letterhead(
+#     pdf: canvas.Canvas,
+#     org: Organization,
+#     logo_paths: List[str],
+#     page_width: float,
+#     page_height: float
+# ) -> float:
+#     """
+#     Draws a letterhead on the current page:
+#      1) A top bar (thin line) across the full width
+#      2) Left: Organization logo + name
+#      3) Right: (Optional) second logo
+#      4) Returns the y-coordinate below the letterhead where body begins.
+#     """
+#     # Dimensions
+#     margin = 2 * cm
+#     logo_mm = 20  # in mm
+#     logo_size = logo_mm * (cm / 10)
+#     line_y = page_height - margin + 5  # just above top margin
+
+#     # 1) Thin top line
+#     pdf.setStrokeColor(colors.grey)
+#     pdf.setLineWidth(0.5)
+#     pdf.line(margin, line_y, page_width - margin, line_y)
+
+#     # 2) Load logos
+#     imgs: List[ImageReader] = []
+#     for lp in logo_paths:
+#         if len(imgs) == 2: break
+#         url = _extract_url_from_field(lp)
+#         if url:
+#             img = _download_image(url)
+#             if img:
+#                 imgs.append(img)
+
+#     # 3) Draw first logo at margin, scaled
+#     if imgs:
+#         pdf.saveState()
+#         pdf.setFillAlpha(0.1)  # very faint
+#         try:
+#             pdf.drawImage(imgs[0], margin, line_y - logo_size,
+#                           width=logo_size, height=logo_size,
+#                           preserveAspectRatio=True, mask="auto")
+#         except Exception:
+#             pass
+#         pdf.restoreState()
+
+#     # 4) Org name next to that logo
+#     pdf.setFont("Helvetica-Bold", 18)
+#     pdf.setFillColor(colors.black)
+#     name_x = margin + (logo_size + 0.5*cm if imgs else 0)
+#     name_y = line_y - (logo_size / 2) - 6
+#     pdf.drawString(name_x, name_y, org.name)
+
+#     # 5) Second logo at right, full opacity
+#     if len(imgs) > 1:
+#         r_x = page_width - margin - logo_size
+#         try:
+#             pdf.drawImage(imgs[1], r_x, line_y - logo_size,
+#                           width=logo_size, height=logo_size,
+#                           preserveAspectRatio=True, mask="auto")
+#         except Exception:
+#             pass
+
+#     # 6) Return body-start Y (leave a bit of whitespace)
+#     return line_y - logo_size - 1 * cm
+
+
+# def _draw_page_watermark(
+#     pdf: canvas.Canvas,
+#     org: Organization,
+#     page_width: float,
+#     page_height: float
+# ):
+def _draw_page_watermark(
+    pdf: canvas.Canvas,
+    org: Organization,
+    logo_paths: List[str],
+    page_width: float,
+    page_height: float
+):
+    """
+    On each page, draw the faint left-logo watermark plus its text beneath.
+    """
+    # 1) Determine watermark text
+    typ = (getattr(org, "type", "") or "").lower()
+    wm_text = (
+        f"Government of {getattr(org, 'country', '')}"
+        if typ in {"government", "public"}
+        else org.name or ""
+    )
+
+    # 2) Fetch first logo URL safely
+    first_url = None
+    if logo_paths:
+        raw = logo_paths[0] or ""
+        try:
+            candidate = _extract_url_from_field(raw)
+            if candidate:
+                first_url = candidate
+        except Exception:
+            first_url = None
+
+    # 3) Draw faint logo if available
+    if first_url:
+        img = _download_image(first_url)
+        if img:
+            pdf.saveState()
+            # very light opacity
+            try:
+                pdf.setFillAlpha(0.05)
+            except Exception:
+                pass
+            size = 40 * (cm / 10)  # 40 mm
+            pdf.drawImage(
+                img,
+                x=2 * cm,
+                y=2 * cm,
+                width=size,
+                height=size,
+                preserveAspectRatio=True,
+                mask="auto",
+            )
+            pdf.restoreState()
+
+    # 4) Draw watermark text beneath logo
+    pdf.saveState()
+    try:
+        pdf.setFillAlpha(0.08)
+    except Exception:
+        pass
+    pdf.setFont("Helvetica-Bold", 24)
+    pdf.setFillColor(colors.grey)
+    # Reasonable left margin + just below the logo
+    pdf.drawString(2 * cm, 2 * cm - 0.5 * cm, wm_text)
+    pdf.restoreState()
+
+# def _show_page_with_watermark(pdf: canvas.Canvas, watermark_text: str):
+#     pdf.showPage()
+#     _apply_watermark(pdf, watermark_text, *A4)
+
+# def _show_page_with_watermark(pdf: canvas.Canvas, org: Organization):
+#     """
+#     Use instead of pdf.showPage() to get watermark on every page.
+#     """
+#     pdf.showPage()
+#     _draw_letterhead(pdf, org, org.logos, *A4)      # re-draw letterhead
+#     _draw_page_watermark(pdf, org, *A4)              # draw faint watermark
+
+def _draw_letterhead(
+    pdf: canvas.Canvas,
+    org: Organization,
+    logo_paths: List[str],
+    employee: Employee,
+    page_width: float,
+    page_height: float
+) -> float:
+    """
+    Letterhead:
+     • top divider
+     • left logo at `margin`
+     • right logo at `page_width - margin - logo_size`
+     • org.name wrapped & centered *between* logos, on the same vertical band
+     • profile image under the right logo
+    Returns the y where body content starts.
+    """
+    margin = 2 * cm
+    logo_mm = 20
+    logo_size = logo_mm * (cm / 10)
+    line_y = page_height - margin + 5
+
+    # 1) Divider line
+    pdf.setStrokeColor(colors.grey)
+    pdf.setLineWidth(0.5)
+    pdf.line(margin, line_y, page_width - margin, line_y)
+
+    # 2) Load logos
+    imgs = []
+    for lp in logo_paths[:2]:
+        url = _extract_url_from_field(lp)
+        img = _download_image(url) if url else None
+        if img:
+            imgs.append(img)
+
+    # 3) Draw left logo
+    left_x = margin
+    if imgs:
+        try:
+            pdf.drawImage(imgs[0],
+                          left_x, line_y - logo_size,
+                          width=logo_size, height=logo_size,
+                          preserveAspectRatio=True, mask="auto")
+        except:
+            pass
+    left_edge = left_x + (logo_size if imgs else 0)
+
+    # 4) Draw right logo
+    right_x = page_width - margin - logo_size
+    if len(imgs) > 1:
+        try:
+            pdf.drawImage(imgs[1],
+                          right_x, line_y - logo_size,
+                          width=logo_size, height=logo_size,
+                          preserveAspectRatio=True, mask="auto")
+        except:
+            pass
+
+    # 5) Org name paragraph, wrapped to gap [left_edge, right_x]
+    gap_width = right_x - left_edge - 0.5 * cm
+    styles = getSampleStyleSheet()
+    name_style = ParagraphStyle(
+        "OrgName",
+        parent=styles["BodyText"],
+        fontName="Helvetica-Bold",
+        fontSize=16,
+        leading=18,
+        alignment=TA_CENTER,
+    )
+    para = Paragraph(org.name or "", name_style)
+    wrapped_w, wrapped_h = para.wrap(gap_width, logo_size)
+    # vertical center in the band from (line_y - logo_size) to line_y
+    y_center = line_y - (logo_size / 2)
+    y_para = y_center - (wrapped_h / 2)
+    para.drawOn(pdf, left_edge + (gap_width - wrapped_w) / 2, y_para)
+
+    # 6) Profile image beneath right logo
+    prof = None
+    if getattr(employee, "profile_image_path", None):
+        prof = _get_profile_image(employee.profile_image_path)
+    if prof:
+        prof_y = line_y - logo_size - 0.5 * cm - logo_size
+        try:
+            pdf.drawImage(prof,
+                          right_x, prof_y,
+                          width=logo_size, height=logo_size,
+                          preserveAspectRatio=True, mask="auto")
+        except:
+            pass
+        bottom_y = prof_y
+    else:
+        bottom_y = min(y_para, line_y - logo_size)
+
+    # 7) return start Y for page body (1cm below the lowest of name/profile)
+    return bottom_y - 1 * cm
+
+
+def _draw_page_watermark_and_footer(
+    pdf: canvas.Canvas,
+    org: Organization,
+    logo_paths: List[str],
+    page_width: float,
+    page_height: float
+):
+    # --- Watermark (centered) ---
+    # Determine text
+    typ = (getattr(org, "type", "") or "").lower()
+    wm_text = f"Government of {getattr(org,'country','')}" if typ in {"government","public"} else org.name or ""
+    # Attempt to fetch first logo for watermark
+    first_logo_url = _extract_url_from_field(logo_paths[0]) if logo_paths else None
+    wm_img = _download_image(first_logo_url) if first_logo_url else None
+
+    pdf.saveState()
+    try: pdf.setFillAlpha(0.05)
+    except: pass
+    if wm_img:
+        size = 100 * (cm/10)  # 100mm watermark
+        pdf.drawImage(wm_img,
+                      x=(page_width-size)/2, y=(page_height-size)/2,
+                      width=size, height=size,
+                      preserveAspectRatio=True, mask="auto")
+    pdf.setFont("Helvetica-Bold", 36)
+    pdf.setFillColor(colors.grey)
+    pdf.drawCentredString(page_width/2, page_height/2 - 40, wm_text)
+    pdf.restoreState()
+
+    # --- Footer timestamp ---
+    pdf.setFont("Helvetica", 8)
+    pdf.setFillColor(colors.grey)
+    ts = datetime.utcnow().strftime("%d %b %Y %H:%M UTC")
+    pdf.drawCentredString(page_width/2, 1 * cm, ts)
+
+
+def _show_page_with_watermark(
+    pdf: canvas.Canvas,
+    org: Organization,
+    employee: Employee,
+    logo_paths: List[str],
+) -> float:
+    pdf.showPage()
+    body_y = _draw_letterhead(pdf, org, logo_paths, employee, *A4)
+    _draw_page_watermark_and_footer(pdf, org, logo_paths, *A4)
+    return body_y
 
 def _draw_header(
     pdf: canvas.Canvas,
@@ -316,7 +659,8 @@ def _draw_header(
             img_y = top_margin - 3 * cm
 
     if employee.profile_image_path:
-        prof_img = _download_image(employee.profile_image_path)
+        # prof_img = _download_image(employee.profile_image_path)
+        prof_img = _get_profile_image(employee.profile_image_path)
         if prof_img:
             try:
                 pdf.drawImage(
@@ -800,6 +1144,11 @@ def download_employee_pdf(
             if lp:
                 logo_paths.append(lp)
 
+     # Security & fetch org/employee omitted for brevity...
+    # Determine watermark text:
+    typ = (org.type or "").lower()
+    watermark = f"Government of {org.country}" if typ in {"government","public"} else org.name
+
     # ---------------------------------------
     # 6) Build the “main” PDF with ReportLab
     # ---------------------------------------
@@ -807,8 +1156,17 @@ def download_employee_pdf(
     pdf = canvas.Canvas(main_buffer, pagesize=A4)
     page_width, page_height = A4
 
+    # New: watermark first
+    # _maybe_draw_watermark(pdf, org, page_width, page_height)
+    # _apply_watermark(pdf, watermark, *A4)
+
     # Draw header (logos + org name + profile image)
-    y = _draw_header(pdf, org, employee, logo_paths, page_width, page_height)
+    # y = _draw_header(pdf, org, employee, logo_paths, page_width, page_height)
+    # Draw first page letterhead & watermark
+    y = _draw_letterhead(pdf, org, logo_paths, employee, page_width, page_height)
+    
+    _draw_page_watermark_and_footer(pdf, org, logo_paths, page_width, page_height)
+    
 
     # --- SECTION: Personal Information ---
     # Ensure there’s space for title + at least one line
@@ -1125,7 +1483,10 @@ def download_employee_pdf(
     # ---------------------------------------
     # 8) Explicitly end current page and save
     # ---------------------------------------
-    pdf.showPage()
+    # _show_page_with_watermark(pdf, watermark)
+    # _show_page_with_watermark(pdf, org)
+    _show_page_with_watermark(pdf, org, employee, logo_paths)
+    # pdf.showPage()
     pdf.save()
 
     # Rewind the buffer so we can read it
