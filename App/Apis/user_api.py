@@ -278,11 +278,11 @@ async def create_new_employee(
     sms_svc: BaseSMSService = Depends(get_sms_service),
 
     # required fields pulled from the form
-    first_name: str         = Form(...),
-    last_name: str          = Form(...),
-    email: EmailStr         = Form(...),
-    role_id: uuid.UUID           = Form(...),
-    organization_id: uuid.UUID   = Form(...),
+    # first_name: str         = Form(...),
+    # last_name: str          = Form(...),
+    # email: EmailStr         = Form(...),
+    # role_id: uuid.UUID           = Form(...),
+    # organization_id: uuid.UUID   = Form(...),
     created_by: uuid.UUID = Form(None),
     image_file: UploadFile  = File(None),
 
@@ -291,13 +291,41 @@ async def create_new_employee(
 ):
     # Because we declared UploadFile above, FastAPI already parsed multipart.
     # Now pull *all* form values (including any dynamic ones):
-    raw = await request.form()
-    data = { k: v for k, v in raw.multi_items() if k not in {"image_file"} }
+
+    # raw = await request.form()
+    # data = { k: v for k, v in raw.multi_items() if k not in {"image_file"} }
+
+    content_type = request.headers.get("content-type", "")
+    if content_type.startswith("application/json"):
+        data = await request.json()
+    else:
+        raw = await request.form()
+        # Pull everything except the file field
+        data = { k: v for k,v in raw.multi_items() if k != "image_file" }
 
     # basic validation (Pydantic would do this too, if you moved to a Model)
-    for field in ("first_name", "last_name", "email", "role_id", "organization_id"):
-        if not data.get(field):
-            raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
+    # for field in ("first_name", "last_name", "email", "role_id", "organization_id"):
+    #     if not data.get(field):
+    #         raise HTTPException(status_code=422, detail=f"Missing required field: {field}")
+
+    required = ["first_name", "last_name", "email", "role_id", "organization_id"]
+    missing  = [f for f in required if not data.get(f)]
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Missing required field(s): {', '.join(missing)}"
+        )
+
+        # parse the two UUIDs from the client’s payload
+    from uuid import UUID
+    try:
+        role_id         = UUID(data["role_id"])
+        organization_id = UUID(data["organization_id"])
+    except (KeyError, ValueError):
+        raise HTTPException(
+            status_code=422,
+            detail="`role_id` and `organization_id` must be valid UUID strings"
+        )
 
     # If you need JSON-encoded fields nested in form, e.g. contact_info="{...}"
     ci = data.get("contact_info")
