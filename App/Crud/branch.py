@@ -27,7 +27,6 @@ def create_branch(db: Session, branch_in: BranchCreate, organization_id: uuid.UU
                 raise HTTPException(status_code=400, detail="Staff already assigned as a Manager in other Branch.")
         
         
-
         branch = Branch(**branch_in.dict(), organization_id=organization_id)
         db.add(branch)
         db.commit()

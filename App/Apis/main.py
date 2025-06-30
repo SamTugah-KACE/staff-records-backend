@@ -908,7 +908,7 @@ def delete_record(
 
 #Branches
 @app.post("/{org_id}/branches", response_model=BranchOut)
-def create_organization_branch(org_id: uuid.UUID, branch_in: BranchCreate, db: Session = Depends(get_db)):
+async def create_organization_branch(org_id: uuid.UUID, branch_in: BranchCreate, db: Session = Depends(get_db)):
     branch = create_branch(db, branch_in, organization_id=org_id)
     asyncio.create_task(push_summary_update(db, str(org_id)))
     return branch
@@ -925,7 +925,7 @@ def get_branch_endpoint(org_id: uuid.UUID, branch_id: uuid.UUID, db: Session = D
     return branch
 
 @app.patch("/{org_id}/branches/{branch_id}", response_model=BranchOut)
-def update_branch_endpoint(org_id: uuid.UUID, branch_id: uuid.UUID, branch_in: BranchUpdate, db: Session = Depends(get_db)):
+async def update_branch_endpoint(org_id: uuid.UUID, branch_id: uuid.UUID, branch_in: BranchUpdate, db: Session = Depends(get_db)):
     branch = get_branch(db, branch_id)
     if not branch or branch.organization_id != org_id:
         raise HTTPException(status_code=404, detail="Branch not found")
@@ -934,7 +934,7 @@ def update_branch_endpoint(org_id: uuid.UUID, branch_id: uuid.UUID, branch_in: B
     return data
 
 @app.delete("/{org_id}/branches/{branch_id}")
-def delete_branch_endpoint(org_id: uuid.UUID, branch_id: uuid.UUID, db: Session = Depends(get_db)):
+async def delete_branch_endpoint(org_id: uuid.UUID, branch_id: uuid.UUID, db: Session = Depends(get_db)):
     branch = get_branch(db, branch_id)
     if not branch or branch.organization_id != org_id:
         raise HTTPException(status_code=404, detail="Branch not found")
