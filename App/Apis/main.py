@@ -910,6 +910,7 @@ def delete_record(
 @app.post("/{org_id}/branches", response_model=BranchOut)
 def create_organization_branch(org_id: uuid.UUID, branch_in: BranchCreate, db: Session = Depends(get_db)):
     branch = create_branch(db, branch_in, organization_id=org_id)
+    asyncio.create_task(push_summary_update(db, str(org_id)))
     return branch
 
 @app.get("/{org_id}/branches", response_model=list[BranchOut])
@@ -929,6 +930,7 @@ def update_branch_endpoint(org_id: uuid.UUID, branch_id: uuid.UUID, branch_in: B
     if not branch or branch.organization_id != org_id:
         raise HTTPException(status_code=404, detail="Branch not found")
     data = update_branch(db, branch, branch_in)
+    asyncio.create_task(push_summary_update(db, str(org_id)))
     return data
 
 @app.delete("/{org_id}/branches/{branch_id}")
@@ -937,6 +939,7 @@ def delete_branch_endpoint(org_id: uuid.UUID, branch_id: uuid.UUID, db: Session 
     if not branch or branch.organization_id != org_id:
         raise HTTPException(status_code=404, detail="Branch not found")
     delete_branch(db, branch)
+    asyncio.create_task(push_summary_update(db, str(org_id)))
     return {"detail": "Branch deleted successfully"}
 
 

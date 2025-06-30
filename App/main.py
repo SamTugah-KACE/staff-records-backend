@@ -145,6 +145,20 @@ pending_messages: Dict[str, List[Dict]] = {}
 #         logger.error(f"Error in websocket_form_design: {exc}")
 #         raise HTTPException(status_code=500, detail="Internal server error")
 
+
+
+@app.get("/api/organizations/{organization_id}/form-design")
+def get_form_design(organization_id: str, db: Session = Depends(get_db)):
+    form = (
+        db.query(Dashboard)
+        .filter(Dashboard.organization_id == organization_id, Dashboard.dashboard_name == "User Registration Form")
+        .first()
+    )
+    if not form:
+        raise HTTPException(status_code=404, detail="Form design not found.")
+    return form.dashboard_data
+
+
 @app.websocket("/ws/form-design/{organization_id}/{user_id}")
 async def websocket_form_design(
     websocket: WebSocket,
