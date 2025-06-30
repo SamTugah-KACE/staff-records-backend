@@ -37,6 +37,11 @@ def create_department(organization_id:uuid.UUID, db: Session, dept_in: Departmen
             if is_dept_exist_in_same_branch:
                 raise HTTPException(status_code=400, detail="Department already exist within same same Branch.")
             
+            # if branch_in.manager_id:
+            is_manager_already_assigned = db.query(Branch).filter(Branch.manager_id == dept_in.department_head_id, Organization.id == organization_id).first()
+            if is_manager_already_assigned:
+                raise HTTPException(status_code=400, detail="Staff assigned as a Branch Manager.")
+            
 
         # Create the department
         department = Department(**dept_in.dict(), organization_id=organization_id)
