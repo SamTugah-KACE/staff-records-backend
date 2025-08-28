@@ -587,7 +587,7 @@ async def create_organization(
     slug = f"{ab}-{generate_random_string(8)}"
     # obj_data["access_url"] = f"http://localhost:8000/{slug}"
 
-    domain = f"https://gi-kace-solutions.onrender.com/{slug}"
+    domain = f"https://gi-kace-solutions-808d.onrender.com/{slug}"
 
     # Create organization record
     new_org = Organization(
