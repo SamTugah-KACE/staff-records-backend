@@ -72,6 +72,7 @@ app.mount("/static", StaticFiles(directory=config.STORAGE_ROOT), name="static")
 origins = [
     "http://localhost:3000",  # React development
     "https://staff-records-superadmin-ui.onrender.com",
+    "https://gi-kace-solutions-808d.onrender.com",
     "https://gi-kace-solutions.onrender.com",  # Update with production frontend URL
 ]
 app.add_middleware(
