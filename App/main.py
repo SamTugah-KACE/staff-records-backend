@@ -70,9 +70,10 @@ app.mount("/static", StaticFiles(directory=config.STORAGE_ROOT), name="static")
 
 # CORS Configuration
 origins = [
-    "http://localhost:3000",  # React development
+    f"http://localhost:3000",  # React development
     "https://staff-records-superadmin-ui.onrender.com",
-    "https://gi-kace-solutions-808d.onrender.com",
+    "{settings.SUPERADMIN_UI_URL}",
+    "{settings.TENANT_URL}",
     "https://gi-kace-solutions.onrender.com",  # Update with production frontend URL
 ]
 app.add_middleware(
@@ -378,6 +379,11 @@ async def on_startup():
         schedule_daily_checks()
 
         register_summary_listeners()
+        
+        # Register employee listeners for automatic updates
+        from Apis.employee_listeners import register_employee_listeners
+        register_employee_listeners()
+        
         print("Application startup tasks completed successfully.")
 
         print("Application startup tasks completed.")

@@ -1102,3 +1102,92 @@ class TourCompletedResponse(BaseModel):
 
 class TourCompletedUpdate(BaseModel):
     tourCompleted: bool = Field(..., description="Set to true once tour is done, false to reset")
+
+
+# ---------- Pydantic Settings Models ----------
+class TenantEmailSettings(BaseModel):
+    provider: str #"smtp" | "sendgrid"
+    host: Optional[str]
+    port: Optional[int]
+    username: Optional[str]
+    password: Optional[str]
+    use_tls: bool = True
+    api_key: Optional[str]
+    default_from: EmailStr
+    templates_dir: str = "templates/emails"
+    logo_path: Optional[str] = None
+    schema_based: bool = False  # True for App1, False for App2
+
+    @root_validator(pre=True)
+    def normalize_sendgrid(cls, values):
+        if values.get("host") == "smtp.sendgrid.net":
+            values["username"] = "apikey"  # SendGrid expects "apikey" as username
+        return values
+    
+    class Config:
+        schema_extra = {
+            "example": {
+                "provider": "smtp",
+                "host": "smtp.mail.yahoo.com",
+                "port": 465 | 587 ,
+                "username": "sammy@yahoo.com",
+                "password": "app-password-here",
+                "use_tls": True,
+                "api_key": "",
+                "default_from": "sammy@yahoo.com",
+                "templates_dir": "templates/emails",
+                "logo_path": "https://path/to/logo.png",
+                "schema_based": True
+            }
+        }
+
+
+# class EmailConfigCreate(BaseModel):
+#     provider: str
+#     host: Optional[str]
+#     port: Optional[int]
+#     username: Optional[str]
+#     password: Optional[str]
+#     use_tls: bool = True
+#     api_key: Optional[str]
+#     default_from: EmailStr
+#     templates_dir: Optional[str] = "templates/emails"
+#     logo_path: Optional[str]
+
+#     @root_validator(pre=True)
+#     def normalize_provider(cls, values):
+#         if not values.get('provider') and values.get('host'):
+#             host = values['host'].lower()
+#             if 'smtp' in host:
+#                 values['provider'] = 'smtp'
+#             elif 'sendgrid' in host:
+#                 values['provider'] = 'sendgrid'
+#         return values
+
+class EmailConfigCreate(TenantEmailSettings):
+    pass
+
+
+class EmailConfigRead(EmailConfigCreate):
+    id: str = Field(..., description="Organization UUID")
+
+class EmailConfigUpdate(BaseModel):
+    provider: Optional[str]
+    host: Optional[str]
+    port: Optional[int]
+    username: Optional[str]
+    password: Optional[str]
+    use_tls: Optional[bool]
+    api_key: Optional[str]
+    default_from: Optional[EmailStr]
+    templates_dir: Optional[str]
+    logo_path: Optional[str]
+
+    
+
+
+class EmailSendRequest(BaseModel):
+    to: List[EmailStr] = Field(..., description="One or more recipient email addresses")
+    subject: str = Field(..., description="Email subject line")
+    template_name: str = Field(..., description="Name of the Jinja2 HTML template file")
+    context: Dict[str, Any] = Field(default_factory=dict, description="Context variables to render into the template")

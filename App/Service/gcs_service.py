@@ -92,8 +92,11 @@ class GoogleCloudStorage:
         self.public_urls = {}
 
         for file in files:
+            # Sanitize filename by replacing spaces with underscores
+            original_filename = file["filename"]
+            sanitized_filename = original_filename.replace(' ', '_')
             
-            storage_path = f'test-app/{folder}/{file["filename"]}'
+            storage_path = f'test-app/{folder}/{sanitized_filename}'
             blob = self.bucket.blob(storage_path)
             
             try: 
@@ -105,7 +108,7 @@ class GoogleCloudStorage:
                 print("\n\nstorage_path: ", storage_path)
                
                 
-                self.public_urls[file['filename']] = f'https://storage.googleapis.com/{settings.BUCKET_NAME}/{storage_path}'
+                self.public_urls[original_filename] = f'https://storage.googleapis.com/{settings.BUCKET_NAME}/{storage_path}'
               
             except Exception as e:
                 logger.error(f"\n\nError uploading file to GCS: {str(e)}")

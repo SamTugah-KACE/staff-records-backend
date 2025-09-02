@@ -1,4 +1,5 @@
 # src/api/ws_employee.py
+import asyncio
 import json
 from typing import Optional
 from fastapi import APIRouter, Query, WebSocket, Depends, WebSocketDisconnect, status
@@ -38,7 +39,6 @@ async def employee_ws(
     # 1) Authenticate & authorize before accepting:
     try:
         user = await get_current_user_ws(token, db)
-        print("User authenticated:", user)
     except Exception:
         # Token invalid/expired → reject handshake
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -67,8 +67,7 @@ async def employee_ws(
 
     # 4) All checks pass → accept the WebSocket and register it
     await websocket.accept()
-    await manager.register(organization_id, str(employee_id), websocket)
-    # await manager.register(organization_id, str(user.id), websocket)
+    await manager.register(organization_id, str(user.id), websocket)
 
     try:
         # 5) Send the “initial” snapshot
@@ -76,16 +75,36 @@ async def employee_ws(
         wrapped = {"type": "initial", "payload": initial_payload}
         await websocket.send_text(json.dumps(wrapped, default=lambda o: str(o)))
 
-        # 6) Listen for “refresh” requests
-        while True:
-            msg = await websocket.receive_text()
-            if msg == "refresh":
-                updated_payload = get_employee_full_record(db, employee_id)
-                update_msg = {"type": "update", "payload": updated_payload}
-                await websocket.send_text(json.dumps(update_msg, default=lambda o: str(o)))
-            else:
-                # You could handle other message types here
-                continue
+        # 6) Enter heartbeat loop with token revalidation
+        try:
+            while True:
+                # Wait up to 60 seconds for client ping or automatic wake-up
+                try:
+                    msg = await asyncio.wait_for(websocket.receive_text(), timeout=60.0)
+                    # Client sent a message - handle refresh requests
+                    if msg == "refresh":
+                        updated_payload = get_employee_full_record(db, employee_id)
+                        update_msg = {"type": "update", "payload": updated_payload}
+                        await websocket.send_text(json.dumps(update_msg, default=lambda o: str(o)))
+                except asyncio.TimeoutError:
+                    # No ping from client, but that's okay - we'll validate token
+                    pass
+
+                # Re-validate token every 60 seconds
+                try:
+                    # Re-authenticate the user to check if token is still valid
+                    reauth_user = await get_current_user_ws(token, db)
+                    if str(reauth_user.id) != str(user.id) or str(reauth_user.organization_id) != organization_id:
+                        # Token is valid but for different user/org - close connection
+                        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                        break
+                except Exception:
+                    # Token is invalid/expired - close connection
+                    await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                    break
+
+        except WebSocketDisconnect:
+            pass  # Client disconnected normally
 
     except WebSocketDisconnect:
         # 7) Clean up

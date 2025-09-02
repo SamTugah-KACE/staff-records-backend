@@ -373,10 +373,15 @@ async def create_employee(
         if not org:
             raise HTTPException(status_code=404, detail="Organization not found.")
         
-        abbr = get_organization_acronym(org.name)
-        # Prepare email details.
-        username = result.email  # Using email as username in this example.
-        email_body = get_email_template(username, plain_password, org.access_url, abbr)
+        # Prepare email details using template.
+        template_data = {
+            "organization_name": org.name,
+            "employee_name": f"{emp_data.title or ''} {emp_data.first_name} {emp_data.last_name}".strip(),
+            "user_avatar": "👤",  # Default avatar emoji
+            "username": result.email,
+            "password": plain_password,
+            "login_url": org.access_url + "/signin"
+        }
 
         # Schedule sending the email in the background.
         email_service = EmailService()  # instantiate your email service as needed
@@ -384,8 +389,9 @@ async def create_employee(
             email_service.send_email,
             background_tasks,
             recipients=[result.email],
-            subject="Your Account Credentials",
-            html_body=email_body
+            subject=f"Welcome to {org.name} - Your Account is Ready",
+            template_name="organization_created.html",
+            template_data=template_data
         )
 
         return result

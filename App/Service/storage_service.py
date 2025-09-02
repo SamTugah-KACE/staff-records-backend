@@ -37,12 +37,16 @@ class GoogleCloudStorage(BaseStorage):
     def upload(self, files, folder):
         urls = {}
         for file in files:
-            blob_path = f"{folder}/{file['filename']}"
+            # Sanitize filename by replacing spaces with underscores
+            original_filename = file['filename']
+            sanitized_filename = original_filename.replace(' ', '_')
+            
+            blob_path = f"{folder}/{sanitized_filename}"
             blob = self.bucket.blob(blob_path)
             try:
                 blob.upload_from_file(BytesIO(file['content']),
                                       content_type=file.get("content_type","application/octet-stream"))
-                urls[file['filename']] = f"https://storage.googleapis.com/{self.bucket_name}/{blob_path}"
+                urls[original_filename] = f"https://storage.googleapis.com/{self.bucket_name}/{blob_path}"
             except Exception as e:
                 logger.error(f"GCS upload error: {e}")
                 raise
@@ -79,7 +83,11 @@ class S3Storage(BaseStorage):
     def upload(self, files, folder):
         urls = {}
         for file in files:
-            key = f"{folder}/{file['filename']}"
+            # Sanitize filename by replacing spaces with underscores
+            original_filename = file['filename']
+            sanitized_filename = original_filename.replace(' ', '_')
+            
+            key = f"{folder}/{sanitized_filename}"
             try:
                 self.client.put_object(
                     Bucket=self.bucket,
@@ -88,7 +96,7 @@ class S3Storage(BaseStorage):
                     ContentType=file.get("content_type","application/octet-stream"),
                     ACL="public-read"
                 )
-                urls[file['filename']] = f"https://{self.bucket}.s3.amazonaws.com/{key}"
+                urls[original_filename] = f"https://{self.bucket}.s3.amazonaws.com/{key}"
             except (BotoCoreError, ClientError) as e:
                 logger.error(f"S3 upload error: {e}")
                 raise
@@ -131,13 +139,16 @@ class LocalStorage(BaseStorage):
             target_dir = os.path.join(self.root, rel_dir)
             os.makedirs(target_dir, exist_ok=True)
             
-            filename = file["filename"]
-            full_path = os.path.join(self.root, rel_dir, filename)
+            # Sanitize filename by replacing spaces with underscores
+            original_filename = file["filename"]
+            sanitized_filename = original_filename.replace(' ', '_')
+            
+            full_path = os.path.join(self.root, rel_dir, sanitized_filename)
             try:
                 with open(full_path, "wb") as f:
                     f.write(file["content"])
-                # You’d serve these under your `/static` mount:
-                urls[filename] = f"{self.base_url}/static/{rel_dir}/{filename}"
+                # You'd serve these under your `/static` mount:
+                urls[original_filename] = f"{self.base_url}/static/{rel_dir}/{sanitized_filename}"
             except Exception as e:
                 logger.error(f"Local FS upload error: {e}")
                 raise

@@ -1875,10 +1875,23 @@ class UserCRUD:
         logos = org.logos
         logo = next(iter(logos.values())) if len(logos) > 1 else logos
 
-        # Step 18: Send email with login credentials.
+        # Step 18: Send email with login credentials using template.
         email_service = EmailService()
-        email_body = get_email_template(user_name, password, org.access_url+"/signin", org.name, logo)
-        await email_service.send_email(background_tasks, recipients=[email], subject="Account Credentials", html_body=email_body)
+        template_data = {
+            "organization_name": org.name,
+            "employee_name": f"{base_employee_data.get('title', '')} {base_employee_data.get('first_name', '')} {base_employee_data.get('last_name', '')}".strip(),
+            "user_avatar": "👤",  # Default avatar emoji
+            "username": email,
+            "password": password,
+            "login_url": org.access_url + "/signin"
+        }
+        await email_service.send_email(
+            background_tasks, 
+            recipients=[email], 
+            subject=f"Welcome to {org.name} - Your Account is Ready",
+            template_name="organization_created.html",
+            template_data=template_data
+        )
 
          # 18. **Send SMS** via injected sms_svc
         phone = base_employee_data.get("contact_info", {}).get("contact") or base_employee_data.get("contact_info", {}).get("phone") or \
@@ -2278,22 +2291,25 @@ async def create_employee_user(
         await db.commit()
         await db.refresh(user)
 
-        # Send Email to Employee
-        email_body = (
-            f"<h1>Your Account Details</h1>"
-            f"<p>Your account has been created with the following details:</p>"
-            f"<ul><li>Username: {username}</li><li>Password: {password}</li></ul>"
-            f"<p>Please log in and change your password immediately.</p>"
-        )
-        # send_email(
-        #     to_email=employee.email,
-        #     subject="Your Account Details",
-        #     body=email_body,
-        #     background_tasks=background_tasks,
-        # )
-
+        # Send Email to Employee using template
+        template_data = {
+            "organization_name": employee.organization.name if hasattr(employee, 'organization') and employee.organization else "Organization",
+            "employee_name": f"{employee.title or ''} {employee.first_name} {employee.last_name}".strip(),
+            "user_avatar": "👤",  # Default avatar emoji
+            "username": username,
+            "password": password,
+            "login_url": (employee.organization.access_url if hasattr(employee, 'organization') and employee.organization else "") + "/signin"
+        }
+        
+        # Use the template-based email sending
+        email_service = EmailService()
         background_tasks.add_task(
-            send_email_async, employee.email, "Your Account Details", email_body, db, self.audit_model, user.id
+            email_service.send_email,
+            background_tasks,
+            recipients=[employee.email],
+            subject=f"Welcome to {template_data['organization_name']} - Your Account is Ready",
+            template_name="organization_created.html",
+            template_data=template_data
         )
 
         # Log Audit
@@ -2422,20 +2438,25 @@ async def bulk_create_users_from_file(
                     await db.commit()
                     await db.refresh(user)
 
-                    # Send email notification
-                    email_body = (
-                        f"<h1>Your Account Details</h1>"
-                        f"<p>Your account has been created with the following details:</p>"
-                        f"<ul><li>Username: {username}</li><li>Password: {password}</li></ul>"
-                        f"<p>Please log in and change your password immediately.</p>"
+                    # Send email notification using template
+                    template_data = {
+                        "organization_name": "Organization",  # You might want to get this from the organization_id
+                        "employee_name": f"{row.get('title', '')} {row.get('first_name', '')} {row.get('last_name', '')}".strip(),
+                        "user_avatar": "👤",  # Default avatar emoji
+                        "username": username,
+                        "password": password,
+                        "login_url": "/signin"  # You might want to get the full URL from organization
+                    }
+                    
+                    email_service = EmailService()
+                    background_tasks.add_task(
+                        email_service.send_email,
+                        background_tasks,
+                        recipients=[email],
+                        subject=f"Welcome to {template_data['organization_name']} - Your Account is Ready",
+                        template_name="organization_created.html",
+                        template_data=template_data
                     )
-                    # send_email(
-                    #     to_email=email,
-                    #     subject="Your Account Details",
-                    #     body=email_body,
-                    #     background_tasks=background_tasks,
-                    # )
-                    background_tasks.add_task(send_email_async, email, "Account Details", email_body, db, self.audit_model, current_user["id"])
                     # Log audit for successful user creation
                     await self.log_audit(
                         db=db,

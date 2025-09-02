@@ -32,50 +32,38 @@ async def websocket_summary(
     # 1) Authenticate
     try:
         user = await global_security.get_current_user_ws(token, db)
-        print("✅ user in ws_summary:", user.id, "org:", user.organization_id)
     except Exception:
-        print("❌ auth failed, closing")
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
     # 2) Tenant + identity check
     if str(user.organization_id) != organization_id or str(user.id) != user_id:
-        print("❌ tenant/user mismatch:", user.organization_id, organization_id, user.id, user_id)
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
     # 3) Accept & register
     await websocket.accept()
     await manager.register(organization_id, user_id, websocket)
-    print("✅ websocket accepted & registered")
 
     try:
         # 4) Validate org exists (use filter().first())
         try:
             org_uuid = UUID(organization_id)
         except ValueError:
-            print("❌ invalid UUID")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             await manager.unregister(organization_id, user_id, websocket)
             return
 
         org = db.query(Organization).filter(Organization.id == org_uuid).first()
         if not org:
-            print("❌ organization not found in DB")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             await manager.unregister(organization_id, user_id, websocket)
             return
-        print("✅ organization loaded:", org.id)
 
         # 5) Build & send initial summary
         payload = await _build_summary_payload(db, org_uuid)
-        # print("\n\nschema_obj:: ", schema_obj)
-        # payload = jsonable_encoder(schema_obj)  # <-- turns Pydantic schema into plain dict
-        # print("\n\njsonable thing")
-        # payload = schema_obj
         message = {"type": "initial", "payload": payload}
         await websocket.send_json(message)
-        print("✅ sent initial payload")
 
         # now enter a “heartbeat+ping” loop
         try:
@@ -99,8 +87,8 @@ async def websocket_summary(
                     break
 
                 # 3️⃣ (optional) send an update every X seconds
-                # payload = await _build_summary_payload(db, org_uuid)
-                # await websocket.send_json({"type":"update", "payload": payload})
+                # Note: Automatic updates are handled by database event listeners
+                # in summary_listeners.py, so we don't need to poll here
 
             # end of loop
         except WebSocketDisconnect:
@@ -120,11 +108,9 @@ async def websocket_summary(
         #         continue
 
     except WebSocketDisconnect:
-        print("🔌 websocket disconnected by client")
         await manager.unregister(organization_id, user_id, websocket)
 
     except Exception as exc:
-        print("🔥 unexpected error in ws_summary:", exc)
         if websocket.client_state.name != "CLOSED":
             await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
         await manager.unregister(organization_id, user_id, websocket)

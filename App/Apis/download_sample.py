@@ -8,14 +8,25 @@ from sqlalchemy.orm import Session
 from Models.Tenants.organization import Organization
 from database.db_session import get_db
 
-
 logger = logging.getLogger(__name__)
 
-# Configuration from environment variables
-EXCEL_FILE_NAME = os.getenv("EXCEL_FILE_NAME", "sample_staff_records.xlsx")
-EXCEL_FILE_NAME_SINGLE = os.getenv("EXCEL_FILE_NAME_SINGLE", "sample_staff_records_.xlsx")
+# Configuration - use default values that match the actual files
+EXCEL_FILE_NAME = "sample_staff_records.xlsx"
+EXCEL_FILE_NAME_SINGLE = "sample_staff_records_.xlsx"
+
+# Get the directory where this script is located (absolute path)
+# This should work regardless of the server's working directory
 BASE_DIR = Path(__file__).resolve().parent
 FILE_PATH = BASE_DIR / EXCEL_FILE_NAME
+
+# Debug logging
+logger.info("Download sample configuration:")
+logger.info("  EXCEL_FILE_NAME: %s", EXCEL_FILE_NAME)
+logger.info("  EXCEL_FILE_NAME_SINGLE: %s", EXCEL_FILE_NAME_SINGLE)
+logger.info("  BASE_DIR resolved to: %s", BASE_DIR)
+logger.info("  Files in BASE_DIR: %s", list(BASE_DIR.glob("*.xlsx")))
+logger.info("  FILE_PATH: %s", FILE_PATH)
+logger.info("  FILE_PATH exists: %s", FILE_PATH.exists())
 
 
 
@@ -39,27 +50,33 @@ async def download_excel(
         logger.error("Organization not found: %s", organization_id)
         raise HTTPException(status_code=404, detail="Organization not found")
     
-    if org.nature.strip().lower() == "single managed":
+    org_nature = org.nature.strip().lower() if org.nature else "unknown"
+    
+    # Determine which file to serve based on organization nature
+    if "single" in org_nature:
         logger.info("Serving single organization file: %s", EXCEL_FILE_NAME_SINGLE)
-        FILE_PATH = BASE_DIR / EXCEL_FILE_NAME_SINGLE
+        file_path = BASE_DIR / EXCEL_FILE_NAME_SINGLE
+        filename = EXCEL_FILE_NAME_SINGLE
     else:
         logger.info("Serving multi-organization file: %s", EXCEL_FILE_NAME)
-        FILE_PATH = BASE_DIR / EXCEL_FILE_NAME
+        file_path = BASE_DIR / EXCEL_FILE_NAME
+        filename = EXCEL_FILE_NAME
     
-    logger.info("Download request received for file: %s", FILE_PATH)
-
+    logger.info("Download request received for file: %s", file_path)
+    logger.info("BASE_DIR: %s", BASE_DIR)
+    logger.info("File path exists: %s", file_path.exists())
 
     # Check if the file exists
-    if not FILE_PATH.exists():
-        logger.error("File not found: %s", FILE_PATH)
+    if not file_path.exists():
+        logger.error("File not found: %s", file_path)
         raise HTTPException(status_code=404, detail="File not found")
     
     try:
-        logger.info("Serving file: %s", FILE_PATH)
+        logger.info("Serving file: %s", file_path)
         return FileResponse(
-            path=str(FILE_PATH),
+            path=str(file_path),
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            filename=EXCEL_FILE_NAME
+            filename=filename
         )
     except Exception as e:
         logger.exception("Error while sending the file: %s", e)

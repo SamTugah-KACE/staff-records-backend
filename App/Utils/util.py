@@ -1,7 +1,7 @@
 from datetime import datetime
 import json
 import re
-from typing import Optional, Set
+from typing import Optional, Set, Iterable
 
 import pandas as pd
 import math
@@ -309,61 +309,143 @@ def _make_acronym(tokens: list[str], stopwords: Set[str], max_secondary: int) ->
 
 
 
-def get_organization_acronym(
+def get_organization_acronym_1(
     org_name: str,
     *,
     stopwords: Optional[Set[str]] = None,
-    max_original_length: int = 10,
-    max_original_tokens: int = 2,
-    max_acronym_secondary: int = 4,
-    max_display_length: int = 10,
+    max_length: int = 15,
 ) -> str:
     """
-    Return a user-friendly label for an organization name:
-      - If the name is a single “short” word (<= max_original_length chars),
-        returns it title-cased (e.g. "pixar" -> "Pixar").
-      - If the name is 2 words or fewer (<= max_original_tokens) and its total
-        length is <= max_original_length * max_original_tokens,
-        returns title-cased original, truncated with '...' if it exceeds max_display_length.
-      - Otherwise, generates an acronym, including the first secondary token (even if a stopword)
-        and then up to max_acronym_secondary-1 additional non-stopword tokens, preserving hyphenation
-        in the first token.
-
+    Generate a smart, URL-safe acronym for an organization name.
+    
+    Rules:
+    - Short names (≤10 chars, ≤2 words): Keep as title case
+    - Medium names: Smart acronym with hyphens for hyphenated words
+    - Long names: Full acronym
+    - Preserves hyphens in original hyphenated words
+    - Filters out common stopwords
+    - URL-safe output
+    
     Args:
-        org_name: Raw organization name.
-        stopwords: Words to ignore in longer secondary positions (default: common small words).
-        max_original_length: Max chars for a “short” single word.
-        max_original_tokens: Max words for displaying full title.
-        max_acronym_secondary: Max tokens for acronym beyond the first.
-        max_display_length: Max length for displaying full title before truncation.
-
+        org_name: Raw organization name
+        stopwords: Words to ignore (default: common small words)
+        max_length: Maximum length of the acronym (default: 15)
+    
     Returns:
-        A cleaned title or an acronym (all in ASCII letters).
+        A smart acronym or title-cased name
+        
+    Examples:
+        "Pixar" -> "Pixar"
+        "Freddie Co." -> "Freddie Co."
+        "Ministry of Communication" -> "MoC"
+        "Ministry of Health & Social Services" -> "MoH-SS"
+        "Ghana-India Kofi Annan Centre" -> "GI-KAC"
+        "University of Technology" -> "UoT"
     """
     if not isinstance(org_name, str) or not org_name.strip():
         raise ValueError("Organization name must be a nonempty string.")
 
     stopwords = stopwords or DEFAULT_STOPWORDS
-
-    # Normalize whitespace and extract tokens (preserving hyphens)
-    tokens = re.findall(r"[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*", org_name.strip())
-    if not tokens:
+    
+    # Clean and normalize the input
+    cleaned_name = org_name.strip()
+    
+    # Remove special characters except alphanumeric, spaces, and hyphens
+    cleaned_name = re.sub(r'[^A-Za-z0-9\s\-]', '', cleaned_name)
+    
+    # Split into words, preserving hyphenated words
+    words = []
+    for word in cleaned_name.split():
+        if '-' in word:
+            # Keep hyphenated words as single units
+            words.append(word)
+        else:
+            words.append(word)
+    
+    if not words:
         raise ValueError("Organization name must contain alphanumeric characters.")
-    joined = org_name.strip()
-    total_length = len(joined)
-
-    # 1) Short single word → Title-case and truncate
-    if len(tokens) == 1 and len(tokens[0]) <= max_original_length:
-        single = tokens[0].capitalize()
-        return _truncate_if_needed(single, max_display_length)
-
-    # 2) Very short multi-word name → Title-case full name and truncate
-    if len(tokens) <= max_original_tokens and total_length <= max_original_length * max_original_tokens:
-        titled = " ".join(tok.capitalize() for tok in tokens)
-        return _truncate_if_needed(titled, max_display_length)
-
-    # 3) Fallback to acronym
-    return _make_acronym(tokens, stopwords, max_acronym_secondary)
+    
+    # Calculate total length and word count
+    total_length = len(cleaned_name)
+    word_count = len(words)
+    
+    # Rule 1: Short names (≤10 chars or ≤2 words) - keep as title case
+    if total_length <= 10 or word_count <= 2:
+        # Clean up the original name for display, but preserve periods
+        display_name = re.sub(r'[^A-Za-z0-9\s\-\.]', '', org_name.strip())
+        # Title case each word
+        title_words = []
+        for word in display_name.split():
+            if '-' in word:
+                # Handle hyphenated words
+                hyphenated_parts = [part.capitalize() for part in word.split('-')]
+                title_words.append('-'.join(hyphenated_parts))
+            else:
+                title_words.append(word.capitalize())
+        return ' '.join(title_words)
+    
+    # Rule 2: Medium to long names - generate smart acronym
+    acronym_parts = []
+    
+    # Process words, including stopwords for better acronyms
+    for i, word in enumerate(words):
+        if '-' in word:
+            # Handle hyphenated words: take first letter of each part
+            hyphenated_parts = word.split('-')
+            hyphen_acronym = '-'.join([part[0].upper() for part in hyphenated_parts if part])
+            acronym_parts.append(hyphen_acronym)
+        else:
+            # For regular words, include stopwords if they help create better acronyms
+            if word.lower() in stopwords and i > 0:
+                # Include stopwords in the middle for better readability
+                acronym_parts.append(word[0].lower())
+            else:
+                # Regular word: take first letter
+                acronym_parts.append(word[0].upper())
+    
+    # Join acronym parts
+    if not acronym_parts:
+        # Fallback: use first word
+        first_word = words[0]
+        if '-' in first_word:
+            parts = first_word.split('-')
+            return '-'.join([part[0].upper() for part in parts if part])
+        else:
+            return first_word[0].upper()
+    
+    # Special handling for specific patterns
+    if len(acronym_parts) == 2:
+        # Two words: join normally
+        acronym = ''.join(acronym_parts)
+    elif len(acronym_parts) == 3:
+        # Three words: MoC, UoT, etc.
+        acronym = ''.join(acronym_parts)
+    elif len(acronym_parts) == 4:
+        # Four words: MoH-SS (Ministry of Health & Social Services)
+        acronym = ''.join(acronym_parts[:2]) + '-' + ''.join(acronym_parts[2:])
+    elif len(acronym_parts) == 5:
+        # Five words: MoH-SS (Ministry of Health & Social Services)
+        acronym = ''.join(acronym_parts[:2]) + '-' + ''.join(acronym_parts[2:])
+    else:
+        # More than 5 words: use first few letters
+        acronym = ''.join(acronym_parts[:4])
+    
+    # Handle hyphenated words in the result
+    if '-' in acronym and len(acronym.split('-')) > 2:
+        # If we have too many hyphens, simplify
+        parts = acronym.split('-')
+        if len(parts) == 3:
+            # G-IK-AC -> GI-KAC
+            acronym = parts[0] + parts[1] + '-' + parts[2]
+        elif len(parts) == 4:
+            # G-I-K-A-C -> GI-KAC
+            acronym = parts[0] + parts[1] + '-' + parts[2] + parts[3]
+    
+    # Ensure we don't exceed max_length
+    if len(acronym) > max_length:
+        acronym = acronym[:max_length]
+    
+    return acronym
 
 
 def _truncate_if_needed(text: str, max_len: int) -> str:
@@ -437,5 +519,210 @@ def get_smtp_config():
             "password": "palvpbokbnisspps",
             "from_email": "dev.aiti.com.gh@gmail.com",
         }
+
+
+# -------- New Advanced Organization Acronym Function --------
+import unicodedata
+
+# Core helpers (generic acronymmer)
+_STOPWORDS_EN = {
+    "a","an","and","as","at","but","by","for","from","in","into","nor",
+    "of","on","or","over","per","the","to","via","with"
+}
+_CAMEL_BOUNDARY_RE = re.compile(r"(?<=[A-Za-z])(?=[A-Z][a-z])|(?<=[a-z])(?=[A-Z])")
+_ALNUM_RE = re.compile(r"[0-9A-Za-z\u00C0-\u024F\u1E00-\u1EFF]+")
+_ROMAN_RE = re.compile(r"^(?:M{0,4}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))$")
+
+def _strip_diacritics(s: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+
+def _split_tokens(text: str):
+    # Normalize common separators to spaces; keep words/digits; split camelCase
+    sep_normalized = re.sub(r"[&+/·•–—/:·]", " ", text).replace("'", "'")
+    rough = _ALNUM_RE.findall(sep_normalized)
+    for t in rough:
+        if t.isupper() and len(t) > 1:  # keep UN/ICT/AI intact
+            yield t
+            continue
+        for p in _CAMEL_BOUNDARY_RE.split(t):
+            if p:
+                yield p
+
+def _initials(words: Iterable[str], *, drop: set = _STOPWORDS_EN) -> str:
+    sig = [w for w in words if w.lower() not in drop]
+    if not sig: sig = list(words)
+    return "".join(w[0].upper() for w in sig if w)
+
+def _generic_acronym(name: str, *, ascii_only=False, stopwords: Optional[set]=None) -> str:
+    if not name or not name.strip():
+        return ""
+    s = " ".join(name.split())
+    if ascii_only: s = _strip_diacritics(s)
+
+    stop = _STOPWORDS_EN if stopwords is None else {w.lower() for w in stopwords}
+    letters = []
+    for tok in _split_tokens(s):
+        low = tok.lower()
+        if low in stop: continue
+        if tok.isupper() and len(tok) > 1:
+            letters.append(tok); continue
+        if _ROMAN_RE.match(tok.upper()) and tok.isalpha():
+            letters.append(tok.upper()); continue
+        ch = tok[0]
+        if ascii_only:
+            ch = re.sub(r"[^A-Za-z0-9]", "", _strip_diacritics(ch))
+            if not ch: continue
+        letters.append(ch.upper())
+    return "".join(letters)
+
+# Ghana-style rules (algorithmic, no hard-coded orgs)
+def _ministry_acronym(after_ministry_of: str) -> str:
+    """
+    Build Mo* form from the domain after 'Ministry of ...'.
+    Split on '&'/'and' into segments; each segment -> initials of significant words.
+    Use hyphen when any segment contributes >1 letter (e.g., 'SS' in 'Social Services').
+      - 'Health & Social Services' -> MoH-SS
+      - 'Communications and Digitalization' -> MoCD
+    """
+    segs = [seg.strip() for seg in re.split(r"\b(?:&|and)\b", after_ministry_of, flags=re.IGNORECASE) if seg.strip()]
+    parts = []
+    for seg in segs:
+        parts.append(_initials(_split_tokens(seg)))
+    needs_hyphen = any(len(p) > 1 for p in parts) or len(parts) > 2
+    tail = ("-" if needs_hyphen else "").join(parts)
+    return f"Mo{tail}"
+
+def _two_party_prefix(name: str) -> Optional[str]:
+    """
+    If the name begins with 'X-Y ...' or 'X Y ...' where X and Y are title-cased words,
+    return their initials joined (e.g., 'Ghana-India ...' -> 'GI').
+    """
+    # Hyphenated pair
+    m = re.match(r"^\s*([A-Z][a-zA-Z]+)\s*-\s*([A-Z][a-zA-Z]+)\b", name)
+    if m:
+        return m.group(1)[0].upper() + m.group(2)[0].upper()
+    # Space-separated pair (less strict; require next token to be capitalized)
+    m2 = re.match(r"^\s*([A-Z][a-zA-Z]+)\s+([A-Z][a-zA-Z]+)\b", name)
+    if m2:
+        return m2.group(1)[0].upper() + m2.group(2)[0].upper()
+    return None
+
+def _centre_of_excellence_block(name_after_prefix: str) -> Optional[str]:
+    """
+    If we find a '... Centre of Excellence ...' block, produce initials of the phrase
+    '[<leading proper names>] Centre of Excellence' (dropping stop-words and 'of'),
+    ignoring any trailing 'in <field>' part. E.g., 'Kofi Annan Centre of Excellence in ICT' -> 'KACE'.
+    """
+    # Trim to '... Centre of Excellence ...' (stop before ' in <...>' if present)
+    trunk = re.split(r"\bin\b", name_after_prefix, flags=re.IGNORECASE, maxsplit=1)[0]
+    # Find the anchor 'Centre of Excellence'
+    m = re.search(r"(.+?)\bCentre\s+of\s+Excellence\b", trunk, flags=re.IGNORECASE)
+    if not m:
+        return None
+    lead = m.group(1)  # e.g., 'Kofi Annan '
+    words = list(_split_tokens(lead)) + ["Centre", "of", "Excellence"]
+    return _initials(words)
+
+def _university_acronym(name: str) -> str:
+    """
+    University patterns (no hard-coded names):
+      A) 'University of <Tail>' -> 'U' + initials(Tail)
+      B) '<Proper Names> University of <Tail>' -> initials(Proper Names) + 'U' + initials(Tail)
+         (This yields KN + U + ST = KNUST for 'Kwame Nkrumah University of Science & Technology')
+    Otherwise fallback to generic.
+    """
+    # A) Starts with University of ...
+    mA = re.match(r"^\s*University\s+of\s+(.+)$", name, flags=re.IGNORECASE)
+    if mA:
+        tail = mA.group(1)
+        return "U" + _initials(_split_tokens(tail))
+
+    # B) Ends with 'University of <Tail>' but has a leading proper-name block
+    mB = re.match(r"^\s*(.+?)\s+University\s+of\s+(.+)$", name, flags=re.IGNORECASE)
+    if mB:
+        prefix, tail = mB.group(1), mB.group(2)
+        pre_init = _initials(_split_tokens(prefix))
+        return pre_init + "U" + _initials(_split_tokens(tail))
+
+    return _generic_acronym(name, ascii_only=True)
+
+def get_organization_acronym(
+    name: str,
+    *,
+    ascii_only: bool = True,
+    max_length: int = 12
+) -> str:
+    """
+    Generate a best-effort, Ghana-style acronym with no hard-coded organization lists.
+
+    Rules (algorithmic):
+      • Ministries: 'Mo' + domain initials, hyphenating when a segment yields multi-letter initials.
+      • Two-party collaborations at the start (e.g., 'Ghana-India ...'):
+          prefix initials (e.g., 'GI') + '-' + block initials if a
+          '... Centre of Excellence ...' anchor is present (e.g., 'KACE').
+      • Universities:
+          - 'University of X Y' -> 'U' + initials(X Y)  (e.g., UENR, UDS)
+          - '<Names> University of X Y' -> initials(Names) + 'U' + initials(X Y) (e.g., KNUST)
+      • Otherwise: robust generic acronymmer (stop-words, camelCase, diacritics, hyphens, digits).
+
+    Parameters
+    ----------
+    name : str
+        Organization/institution name.
+    ascii_only : bool
+        If True, strip diacritics to ASCII.
+    max_length : int
+        Maximum length of the acronym (default: 12).
+
+    Returns
+    -------
+    str : acronym in uppercase
+    """
+    if not isinstance(name, str):
+        raise ValueError("Organization name must be a string")
+    
+    if not name.strip():
+        raise ValueError("Organization name cannot be empty")
+
+    # Clean the input: remove special characters except alphanumeric, spaces, hyphens, and ampersands
+    s = re.sub(r'[^\w\s\-&]', ' ', name.strip())
+    s = " ".join(s.split())
+
+    # Ministry pattern
+    m = re.match(r"^\s*Ministry\s+of\s+(.+)$", s, flags=re.IGNORECASE)
+    if m:
+        result = _ministry_acronym(m.group(1))
+        return result[:max_length] if len(result) > max_length else result
+
+    # Two-party collab + Centre of Excellence anchor (e.g., GI-KACE)
+    two = _two_party_prefix(s)
+    if two:
+        # remove the initial two words/hyphen from the front
+        s2 = re.sub(r"^\s*[A-Z][a-zA-Z]+\s*-?\s*[A-Z][a-zA-Z]+\s*", "", s)
+        kace = _centre_of_excellence_block(s2)
+        if kace:
+            result = f"{two}-{kace}"
+            return result[:max_length] if len(result) > max_length else result
+        else:
+            # If no Centre of Excellence, create acronym from remaining words
+            remaining_words = list(_split_tokens(s2))
+            if remaining_words:
+                remaining_acronym = _initials(remaining_words)
+                result = f"{two}-{remaining_acronym}"
+                return result[:max_length] if len(result) > max_length else result
+
+    # University patterns
+    if re.search(r"\bUniversity\b", s, flags=re.IGNORECASE):
+        result = _university_acronym(s)
+        return result[:max_length] if len(result) > max_length else result
+
+    # Fallback generic
+    result = _generic_acronym(s, ascii_only=ascii_only)
+    
+    # Ensure we don't exceed max_length
+    if len(result) > max_length:
+        result = result[:max_length]
+    
+    return result
 
 

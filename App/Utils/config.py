@@ -35,6 +35,12 @@ class BaseConfig(BaseSettings):
         env="API_BASE_URL",
         description="Public base URL of this API, e.g. https://api.myapp.com",
     )
+
+    TENANT_URL: str = Field(
+        "",
+        env="TENANT_URL",
+        description="Public base URL of the tenant service, e.g. https://tenant.myapp.com",
+    )
     
     # Database Configurations
     DATABASE_URL: str = Field("postgresql://postgres:password@localhost/records_db", env="DATABASE_URL", description="Database connection string.")
@@ -53,7 +59,7 @@ class BaseConfig(BaseSettings):
     FACIAL_AUTH_API_TIMEOUT:int = 120  # 120 seconds
 
 
-   
+    SENDGRID_API_KEY: str = Field(..., env="SENDGRID_API_KEY")
     
     MAIL_USERNAME: str =Field(..., env="MAIL_USERNAME")
     MAIL_PASSWORD: str =Field(..., env="MAIL_PASSWORD") #palvpbokbnisspps
@@ -65,11 +71,12 @@ class BaseConfig(BaseSettings):
     USE_CREDENTIALS: bool = Field(..., env="USE_CREDENTIALS")
     VALIDATE_CERTS: bool = Field(..., env="VALIDATE_CERTS")
 
+    PROVIDER: str = Field(..., env="PROVIDER", description="Client Email Service Provider. 'smtp' | 'sendgrid' ")
 
     # Logging
     LOG_LEVEL: str = Field("INFO", env="LOG_LEVEL", description="Logging level (DEBUG, INFO, WARNING, ERROR).")
 
-   
+    SUPERADMIN_UI_URL: str = Field(..., env="SUPERADMIN_UI_URL", description="Superadmin UI URL.")
 
     # Production-ready seed data for roles and their permissions.
     DEFAULT_ROLE_PERMISSIONS: List[Dict[str, Any]] = Field(
@@ -373,8 +380,9 @@ class BaseConfig(BaseSettings):
     
     EXCEL_FILE_NAME:str = Field("sample_staff_records.xlsx", env="EXCEL_FILE_NAME", description="Name of the sample Excel file.")
     EXCEL_FILE_NAME_SINGLE:str = Field("sample_staff_records_.xlsx", env="EXCEL_FILE_NAME_SINGLE", description="Name of the sample excel file for single managed organization")
-    EXCEL_FILE_URL:str = Field("https://gi-kace-solutions.onrender.com/api/download/download-excel", env="EXCEL_FILE_URL", description="URL to download the sample Excel file.")
-    EXCEL_FILE_PATH:str = "App/Apis/sample_staff_records.xlsx"
+    # EXCEL_FILE_URL:str = Field("https://gi-kace-solutions.onrender.com/api/download/download-excel", env="EXCEL_FILE_URL", description="URL to download the sample Excel file.")
+    EXCEL_FILE_URL:str = Field(f"{TENANT_URL}/api/download/download-excel", env="EXCEL_FILE_URL", description="URL to download the sample Excel file.")
+    EXCEL_FILE_PATH:str = "App/Apis/"
 
     class Config:
         env_file = ".env"

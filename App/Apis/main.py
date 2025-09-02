@@ -10,9 +10,14 @@ from uuid import UUID
 from typing import Dict, List, Optional
 from Crud.auth import get_current_user_for_others
 from Service.email_service import EmailService, build_account_email_html
+from Service.custom_email_service import EmailService as CustomEmailService
+from Service.custom_email_settings import DEFAULT_EMAIL_SETTINGS
+from Service.email_config_service import EmailConfigService
+from Schemas.schemas import TenantEmailSettings
 # from email_service import EmailService
 # from 
 from Service.storage_service import BaseStorage
+import json
 from database.db_session import get_db  # Your database session dependency
 from Crud.crud import CRUDBase  # Generic CRUD class
 from Crud.branch import *
@@ -52,6 +57,7 @@ from Utils.storage_utils import get_storage_service
 from Utils.sms_utils import get_sms_service
 from Utils.security import Security
 from fastapi_mail.errors import ConnectionErrors
+
 
 
 
@@ -545,6 +551,7 @@ async def create_organization(
     country: str = Form(...),
     org_type: str = Form(...),  # e.g., Private, Government, Public, NGO
     employee_range: str = Form(...),  # e.g., "0-10"
+    organization_settings: str = Form(None),  # JSON string containing custom settings
     logos: List[UploadFile] = File(None),
     storage: BaseStorage = Depends(get_storage_service),
     db: Session = Depends(get_db),
@@ -587,7 +594,9 @@ async def create_organization(
     slug = f"{ab}-{generate_random_string(8)}"
     # obj_data["access_url"] = f"http://localhost:8000/{slug}"
 
-    domain = f"https://gi-kace-solutions-808d.onrender.com/{slug}"
+    # domain = f"f"{settings.TENANT_URL}/{slug}"
+
+    domain = f"{config.TENANT_URL}/{slug}" if config.TENANT_URL else ""
 
     # Create organization record
     new_org = Organization(
@@ -605,6 +614,37 @@ async def create_organization(
     db.add(new_org)
     db.commit()
     db.refresh(new_org)
+
+    # Handle organization settings if provided - save to SystemSetting table
+    if organization_settings:
+        try:
+            settings_data = json.loads(organization_settings)
+            email_config_service = EmailConfigService(db, schema_based=False)
+            
+            # Extract email settings from the organization settings
+            if "emailSettings" in settings_data:
+                email_settings = settings_data["emailSettings"]
+                # Create TenantEmailSettings object
+                tenant_email_settings = TenantEmailSettings(
+                    provider=email_settings.get("provider", "smtp"),
+                    host=email_settings.get("host"),
+                    port=email_settings.get("port", 587),
+                    username=email_settings.get("username"),
+                    password=email_settings.get("password"),
+                    use_tls=email_settings.get("use_tls", True),
+                    default_from=email_settings.get("default_from", organization_email),
+                    logo_path=email_settings.get("logo_path"),
+                    api_key=email_settings.get("api_key"),
+                    templates_dir="templates/emails",
+                    schema_based=False
+                )
+                # Store email settings in SystemSetting table
+                email_config_service.create(new_org.id, tenant_email_settings)
+                logger.info(f"Custom email settings saved to SystemSetting table for organization {new_org.id}")
+                
+        except (json.JSONDecodeError, Exception) as e:
+            logger.warning(f"Failed to parse organization settings: {e}")
+            # Continue without custom settings - will use default email service
 
     default_perms = []
     # if role_val.lower() == "staff":
@@ -707,12 +747,78 @@ async def create_organization(
         
         print(f"image: {extract_items(image)}")
         
-        email_service = EmailService()  # Instantiate the email service
-                    # Send email with credentials
-        email_body = build_account_email_html(row_data=row_data,  logo_url=extract_items(logo), login_href=domain+"/signin", pwd=plain_password)
-                    # email_body = get_email_template(username, password, signin_page, obj_data['name'] )
-        await email_service.send_email(background_tasks, recipients=[contact_email], subject="Account Credentials", html_body=email_body)
-    except ConnectionErrors as conn_exc:
+        # Try to use custom email service if organization has custom settings, otherwise use default
+        try:
+            # Check if organization has custom email settings in SystemSetting table
+            email_config_service = EmailConfigService(db, schema_based=False)
+            custom_email_settings = email_config_service.read(new_org.id)
+            
+            if custom_email_settings:
+                # Use custom email service
+                custom_email_service = CustomEmailService(
+                    tenant_id=str(new_org.id),
+                    db=db,
+                    default_settings=DEFAULT_EMAIL_SETTINGS
+                )
+                
+                # Build email context for organization_created.html template
+                email_context = {
+                    "organization_name": organization_name,
+                    "employee_name": f"{title} {first_name} {last_name}".strip(),
+                    "user_avatar": "👤",  # Default avatar emoji
+                    "username": contact_email,
+                    "password": plain_password,
+                    "login_url": domain + "/signin"
+                }
+                
+                # Send email using custom service with template
+                custom_email_service.send_email(
+                    to=[contact_email],
+                    subject=f"Welcome to {organization_name} - Your Account is Ready",
+                    template_name="organization_created.html",
+                    context=email_context
+                )
+                logger.info("Email sent using custom email service from SystemSetting table")
+            else:
+                # Use default email service with template
+                email_service = EmailService()
+                template_data = {
+                    "organization_name": organization_name,
+                    "employee_name": f"{title} {first_name} {last_name}".strip(),
+                    "user_avatar": "👤",  # Default avatar emoji
+                    "username": contact_email,
+                    "password": plain_password,
+                    "login_url": domain + "/signin"
+                }
+                await email_service.send_email(
+                    background_tasks, 
+                    recipients=[contact_email], 
+                    subject=f"Welcome to {organization_name} - Your Account is Ready",
+                    template_name="organization_created.html",
+                    template_data=template_data
+                )
+                logger.info("Email sent using default email service with template")
+                
+        except Exception as email_error:
+            logger.error(f"Custom email service failed, falling back to default: {email_error}")
+            # Fallback to default email service with template
+            email_service = EmailService()
+            template_data = {
+                "organization_name": organization_name,
+                "employee_name": f"{title} {first_name} {last_name}".strip(),
+                "user_avatar": "👤",  # Default avatar emoji
+                "username": contact_email,
+                "password": plain_password,
+                "login_url": domain + "/signin"
+            }
+            await email_service.send_email(
+                background_tasks, 
+                recipients=[contact_email], 
+                subject=f"Welcome to {organization_name} - Your Account is Ready",
+                template_name="organization_created.html",
+                template_data=template_data
+            )
+    except Exception as conn_exc:
         # extremely unlikely, since send_email just schedules a task,
         # but you could handle missing config here if you want.
         raise HTTPException(
