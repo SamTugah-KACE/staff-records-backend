@@ -596,7 +596,8 @@ async def create_organization(
 
     # domain = f"f"{settings.TENANT_URL}/{slug}"
 
-    domain = f"{config.TENANT_URL}/{slug}" if config.TENANT_URL else ""
+    #domain = f"{config.TENANT_URL}/{slug}" if config.TENANT_URL else ""
+    domain = f"https://gi-kace-solutions.onrender.com/{slug}"
 
     # Create organization record
     new_org = Organization(
